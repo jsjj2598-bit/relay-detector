@@ -1,0 +1,18 @@
+{
+  "name": "relay-detector",
+  "version": "1.0.0",
+  "private": true,
+  "description": "API 中转站识别器 —— 判断一个 OpenAI 兼容 / Claude / Gemini 接口是官方直连还是第三方中转，并输出多层指纹评分报告。",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["openai", "api-relay", "fingerprint", "one-api", "new-api", "detector"],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node proxy/server.mjs",
+    "proxy": "node proxy/server.mjs",
+    "test": "node --test test/",
+    "fingerprint": "node tools/fingerprint-official.mjs"
+  }
+}
