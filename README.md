@@ -273,6 +273,22 @@ curl "http://127.0.0.1:8787/proxy?url=https%3A%2F%2Fapi.anthropic.com%2Fv1%2Fmod
 
 详细路由、响应头语义与参数见 [proxy/README.md](proxy/README.md)。
 
+### 方式 C：桌面端（推荐给普通用户，能绕过 CORS）
+
+桌面端在本机进程发请求，因此**完全不受浏览器 CORS 限制**，并能读完整响应头与 TLS 证书。
+两种形态，共用同一套代码与同一个本地代理：
+
+```powershell
+# 零依赖启动器：双击 desktop\launch.cmd，或
+npm run desktop
+
+# Electron 原生窗口（首次需装一次依赖）
+npm run desktop:electron
+```
+
+启动器会自动打开浏览器并**预置为「本地代理」模式**，端口自动分配（不会和 8787 冲突）。
+详见 [desktop/README.md](desktop/README.md)。
+
 ---
 
 ## 隐私与安全
@@ -315,6 +331,11 @@ curl "http://127.0.0.1:8787/proxy?url=https%3A%2F%2Fapi.anthropic.com%2Fv1%2Fmod
 ```text
 .
 ├─ index.html                      页面骨架（原生 ESM，无构建）
+├─ assets/og-cover.png             社交分享卡片（1200×630）
+├─ desktop/                        桌面端
+│  ├─ launch.cmd / launch.mjs      零依赖启动器（只需 Node，双击即用）
+│  ├─ main.mjs                     Electron 外壳（进程内复用本地代理）
+│  └─ README.md                    两种桌面形态、打包与安全说明
 ├─ src/
 │  ├─ core/
 │  │  ├─ constants.js              常量与校准事实（冻结，只读）

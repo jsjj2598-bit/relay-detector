@@ -1,0 +1,16 @@
+{
+  "name": "relay-detector-desktop",
+  "productName": "中转站检测器",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "relay-detector 桌面端外壳：内置本地代理，免装 Node、免 CORS 限制、可读 TLS 证书",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-packager . 中转站检测器 --platform=win32 --arch=x64 --out=dist --overwrite"
+  },
+  "devDependencies": {
+    "electron": "^44.9.0"
+  }
+}

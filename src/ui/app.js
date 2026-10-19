@@ -1101,6 +1101,54 @@ function initButtons() {
 }
 
 /* ------------------------------------------------------------------ *
+ * URL 预置（桌面端外壳 / 分享链接用）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 支持通过 URL 参数预置表单，便于：
+ *   - 桌面端（Electron / 启动器）自动进入「本地代理」模式并指回自己的代理地址；
+ *   - 分享一条带 `baseUrl` 的链接给同事，打开即填好。
+ *
+ * 只接受**白名单取值**并做长度/协议校验，避免被构造链接注入意外内容。
+ *
+ * 例：/?mode=proxy&proxyUrl=http%3A%2F%2F127.0.0.1%3A8787&desktop=1
+ */
+function applyUrlPreset() {
+  let params;
+  try {
+    params = new URLSearchParams(window.location.search);
+  } catch {
+    return;
+  }
+
+  const setRadio = (name, value, allowed) => {
+    if (!allowed.includes(value)) return;
+    const input = document.querySelector(`input[name="${name}"][value="${value}"]`);
+    if (!input || input.checked) return;
+    input.checked = true;
+    input.dispatchEvent(new Event('change'));
+  };
+
+  const mode = params.get('mode');
+  if (mode) setRadio('mode', mode, ['browser', 'proxy']);
+
+  const proxyUrl = params.get('proxyUrl');
+  if (proxyUrl && proxyUrlInput && proxyUrl.length < 200 && /^https?:\/\/[^\s]+$/i.test(proxyUrl)) {
+    proxyUrlInput.value = proxyUrl;
+  }
+
+  const baseUrl = params.get('baseUrl');
+  if (baseUrl && baseUrlInput && baseUrl.length < 500 && /^https?:\/\/[^\s]+$/i.test(baseUrl)) {
+    baseUrlInput.value = baseUrl;
+  }
+
+  const depth = params.get('depth');
+  if (depth) setRadio('depth', depth, ['fingerprint', 'authenticity', 'full']);
+
+  if (params.get('desktop') === '1') document.documentElement.dataset.desktop = '1';
+}
+
+/* ------------------------------------------------------------------ *
  * 启动
  * ------------------------------------------------------------------ */
 
@@ -1114,6 +1162,7 @@ function init() {
   initKeyPersistence();
   initDepth();
   initCostAndModels();
+  applyUrlPreset();
   initButtons();
   initPrint();
 

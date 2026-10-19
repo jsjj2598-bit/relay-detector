@@ -19,14 +19,17 @@
 | **C. 本地代理 + 代理托管页面** | 要装 Node.js | 绕开 | **是** | 否（只到 127.0.0.1） | 免费 | 进阶用户、需要证书证据 |
 | **D. 云端探测 API** | 零安装 | 绕开 | 是 | **是**（Key 会经过你的服务器） | 服务器/流量 | 想要「开箱即用」的商业化服务 |
 
-**推荐路线（不碰钱的顺序）**：
+**推荐路线（已按实际实现与实测更新）**：
 
-1. **本周**：通道 A 上线，README 写清局限。
-2. **下一步**：通道 B（扩展）。这是唯一「零后端 + 零成本 + 绕过 CORS + Key 不出本机」的方案，
-   对「广大用户」性价比最高。
-3. **按需**：通道 C 已经是现成的（`proxy/server.mjs`），只是要装 Node。
-4. **最后才考虑**：通道 D。它会引入 Key 托管责任、SSRF 滥用风险、服务器成本与合规问题，
-   在没想清楚第 4 节的红线之前**不要做**。
+1. **本周：双托管上线静态站** —— GitHub Pages（海外优先）+ Cloudflare Pages（国内可访问镜像），
+   同一份产物、零成本，拿第一批反馈。见第 1 节。
+2. **同步发布桌面端**（**已实现并实测通过**）—— 这是「广大用户真正可用」的关键：
+   桌面端在本机进程发请求，**完全绕过 CORS**，还能读完整响应头与 TLS 证书。
+   两种形态：零依赖启动器（`desktop/launch.cmd`，只需 Node）与 Electron 应用（原生窗口，可打包）。
+   见第 2 节。
+3. **可选：浏览器扩展** —— 零后端也能绕 CORS，但只覆盖「在用浏览器」的场景，且要过扩展商店审核。
+4. **最后才考虑：云端探测 API**。它会引入 Key 托管责任、SSRF 滥用风险、服务器成本与合规问题。
+   在没想清楚第 3 节红线之前**不要做**。
 
 ---
 
@@ -65,15 +68,39 @@ curl -s  https://<你的用户名>.github.io/relay-detector/ | grep -o '<title>.
 
 > 注意：自定义域名后要同步修改 `index.html` 里的 `og:url` / `canonical`。
 
-### 1.5 中国大陆访问的现实
+### 1.5 双托管：GitHub Pages + Cloudflare Pages（推荐「两者都要」）
 
-`*.github.io` 在国内访问不稳定。若要面向国内用户，把同一份静态产物镜像到：
+`*.github.io` 在国内访问不稳定，所以**同一份产物部署两份**，README 里给两个地址。
+两者都是免费、自动 HTTPS、连 Git 仓库自动构建，**仓库不需要改任何代码**。
 
-- **Cloudflare Pages**（免费、国内可访问性通常更好）
-- **Vercel / Netlify**（免费额度足够）
+#### 份 1：GitHub Pages（海外优先）
 
-它们都支持「连接 Git 仓库、自动构建、自动 HTTPS」，且仓库不需要改代码
-（构建命令留空，输出目录填 `.` 即可）。
+见 1.1–1.3。部署地址形如 `https://<用户名>.github.io/relay-detector/`。
+
+#### 份 2：Cloudflare Pages（国内可访问性通常更好）
+
+1. 注册 <https://dash.cloudflare.com/> → **Workers & Pages → Create → Pages → Connect to Git**。
+2. 授权 GitHub，选中同一个仓库。
+3. 构建设置：
+   - **Framework preset**：`None`
+   - **Build command**：**留空**
+   - **Build output directory**：`.`（仓库根目录就是产物）
+4. 保存并部署。地址形如 `https://relay-detector.pages.dev`。
+5. 可选：在 Pages → Custom domains 绑自己的域名。
+
+#### 份 3（可选）：Vercel
+
+同样「Import Git Repository → Framework: Other → Build Command 留空 → Output Directory `.`」。
+
+#### 部署后必做
+
+1. 把 `index.html` 里 `og:image` / `twitter:image` 的 `./assets/og-cover.png`
+   改成**绝对 URL**（社交平台抓取卡片要求绝对地址）。
+2. README 顶部给出两个线上地址。
+3. 用手机分别打开两个地址各测一次（第 7 节的验收清单）。
+
+> 注意：两份部署的**版本必须一致**。以 GitHub 仓库为唯一真源，
+> Cloudflare / Vercel 都设为「Git 推送自动部署」，不要在平台侧手改文件。
 
 ---
 
@@ -95,9 +122,31 @@ curl -s  https://<你的用户名>.github.io/relay-detector/ | grep -o '<title>.
 报告里会显示 `capabilities.corsBlocked = true`，并给出「改用本地代理 / 扩展」的建议 ——
 这是诚实的行为，但对普通用户来说就是「用不了」。
 
-### 2.2 三条补全路线
+### 2.2 四条补全路线
 
-#### 路线 B-1（推荐）：浏览器扩展
+#### 路线 B-0（已实现，推荐）：桌面端
+
+**这是目前推荐的「广大用户可用」方案，且已在本机实测通过。**
+两种形态共用同一套代码与同一个本地代理：
+
+| 形态 | 启动方式 | 用户门槛 |
+| --- | --- | --- |
+| 零依赖启动器 | 双击 `desktop/launch.cmd`（或 `npm run desktop`） | 只需 Node 21+ |
+| Electron 应用 | `cd desktop` → `npm install` → `npm start` | 装一次依赖，可打包成 exe 分发 |
+
+两者做的事一样：在本机起代理 → 打开页面并**预置为「本地代理」模式**。
+因此不受 CORS 限制、能读完整响应头与 TLS 证书，API Key 只到 `127.0.0.1`。
+详见 [`desktop/README.md`](../desktop/README.md)。
+
+> **本机实测（2026-10-19，Electron 44.9.0）**：应用启动后内部代理监听随机端口，
+> `/health` 返回 `2.0.0`；`/inspect?host=api.anthropic.com` 读到真实证书
+> （Google Trust Services / WE1）；SSRF 目标返回 403；页面返回 200。
+>
+> 踩坑记录：若环境里存在 `ELECTRON_RUN_AS_NODE=1`，`electron.exe` 会退化成纯 Node，
+> 表现为 `Cannot read properties of undefined (reading 'requestSingleInstanceLock')`。
+> 启动前清掉该变量即可。
+
+#### 路线 B-1：浏览器扩展
 
 Manifest V3 里，只要在 `host_permissions` 声明目标域，扩展的 **service worker 发起的 fetch
 不受 CORS 约束**。于是：

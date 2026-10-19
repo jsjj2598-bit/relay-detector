@@ -12,6 +12,8 @@
   "scripts": {
     "start": "node proxy/server.mjs",
     "proxy": "node proxy/server.mjs",
+    "desktop": "node desktop/launch.mjs",
+    "desktop:electron": "npm --prefix desktop start",
     "test": "node --test \"test/**/*.test.mjs\"",
     "verify": "npm test && node tools/acceptance-auth.mjs && node tools/check.mjs --demo kiro",
     "demo": "node tools/check.mjs --demo genuine",
