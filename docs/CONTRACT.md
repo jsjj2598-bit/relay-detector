@@ -241,10 +241,11 @@ export const openaiProvider = {
 ```js
 export function scoreSignals(signals, categoryWeights?) -> {
   score, officialScore, evidenceStrength, verdict,
-  relayPoints, officialPoints, neutralPoints,
+  relayPoints, officialPoints, neutralPoints, directionalPoints,
+  flags: { hasDirectionalEvidence, urlIdentityConfirmed, officialDowngraded, upstreamLooksGenuine },
   breakdown: { [category]: { relay: n, official: n } }
 }
-export function verdictFromScore(score, evidenceStrength) -> verdict
+export function verdictFromScore(score, evidenceStrength, hasDirectionalEvidence?) -> verdict
 export const VERDICT_LABELS, VERDICT_TONES      // UI 直接用
 ```
 
@@ -252,12 +253,37 @@ export const VERDICT_LABELS, VERDICT_TONES      // UI 直接用
 
 | 条件 | verdict |
 | --- | --- |
+| `hasDirectionalEvidence === false` | `inconclusive`（**硬闸门**，优先级最高） |
 | `evidenceStrength < 0.40` | `inconclusive` |
 | `score >= 70` | `relay` |
 | `58 <= score < 70` | `likely-relay` |
 | `42 <= score < 58` | `inconclusive` |
 | `30 <= score < 42` | `likely-official` |
 | `score < 30` | `official` |
+
+**降级闸门（`scoreSignals` 内部，`REQUIRE_URL_EVIDENCE_FOR_OFFICIAL`）**：
+若不存在 `category === 'url'` 且 `verdict === 'official'` 的信号（即域名身份未被确认为官方/正规端点），
+则 `official` 与 `likely-official` 一律降级为 `inconclusive`，并在 `flags.officialDowngraded` 置 true。
+
+**绝对量闸门（`scoreSignals` 内部，`MIN_DIRECTIONAL_POINTS = 15`）**：
+`score` 是**比例制**（`relayPoints / (relayPoints + officialPoints)`），零官方证据时任何一条 relay 信号都会打满 100 分。
+因此方向结论还要求方向分**绝对量**达到 15，否则降级为 `inconclusive` 并置 `flags.insufficientDirectionalPoints = true`。
+（复现：`[relay(14,0.4,'headers'), neutral(100,0.85,'url')]` → relayPoints 仅 4.76、`score=100`、`evidenceStrength=0.4307`，
+若无此闸门会判成「高度确信是中转站」。）
+
+> 理由：`openai-version` / `openai-processing-ms` / `openai-organization` 这类官方响应头在**反向代理**下会被
+> 原样透传。一个转发到真实 `api.openai.com` 的中转站会返回完全真实的官方头与官方错误报文。
+> 「响应头像官方」只能证明**上游是真的**，不能证明**你连的是官方**。唯一能证明直连的是域名身份。
+> 降级后的 `flags.upstreamLooksGenuine === true` 表示：上游确实是真实官方实现，但域名身份未确认，
+> 很可能经由代理访问 —— UI 应当把这一情形解释清楚。
+
+> **v1.1 修正（Lead，2026-10-19）**：新增 `hasDirectionalEvidence` 闸门与 `directionalPoints` 字段。
+> 原因：中立证据会抬高 `evidenceStrength`，若没有任何方向证据，`score=0` 会落到 `official`，
+> 把「什么方向都没看出来」误报成「官方直连」。而 `api.anthropic.com` 实测本身就在 Cloudflare 后，
+> 这类场景极常见，必须保守判为 `inconclusive`。这是 verifier 发现并回归测试覆盖的缺陷。
+>
+> **v1.2 修正（Lead，2026-10-19）**：新增 `flags` 与域名身份降级闸门，见上。
+> 原因：反向代理透传官方响应头会导致「上游为真 ⇒ 判定直连」的漏判。
 
 ### 2.5 `src/core/constants.js`（Lead 提供，冻结）
 
@@ -315,3 +341,7 @@ engine 与 UI 都只能**读取**，不得修改。
 4. 所有模块必须能在 Node 20+ 下被 `import`（纯逻辑部分不得直接触碰 `document`），
    以便 `test/**` 无需浏览器即可跑通。
 5. 中文 UI 文案；代码注释中文为主。
+6. **测试命令**：`npm test`，即 `node --test "test/**/*.test.mjs"`。
+   ⚠️ 不要写成 `node --test test/` —— Node 24 的测试运行器会把「目录位置参数」当作模块去 require，
+   直接报 `Cannot find module '.../test'` 而一个测试都不跑（已实测复现）。
+   CI 与 README 必须使用本文件规定的命令。

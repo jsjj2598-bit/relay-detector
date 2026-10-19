@@ -1,0 +1,23 @@
+{
+  "id": "network-error",
+  "description": "完全不可达：transport 抛 TypeError('fetch failed')，用于验证 detect() 绝不抛异常且网络不可达时判 inconclusive",
+  "owner": "engine",
+  "mode": "browser",
+  "transportFail": "network",
+  "target": {
+    "input": "https://unreachable.example.com/v1",
+    "baseUrl": "https://unreachable.example.com/v1",
+    "host": "unreachable.example.com",
+    "provider": "openai",
+    "providerSource": "explicit"
+  },
+  "options": { "allowPaidProbes": false, "timeoutMs": 3000 },
+  "routes": [],
+  "defaultResponse": null,
+  "expect": {
+    "verdictIn": ["inconclusive"],
+    "networkReachable": false,
+    "rationale": "网络失败必须表现为 probes[].error + notes，绝不抛异常，也不得据此推断方向。",
+    "severity": "high"
+  }
+}

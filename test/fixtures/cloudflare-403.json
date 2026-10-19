@@ -1,0 +1,41 @@
+{
+  "id": "cloudflare-403",
+  "description": "Cloudflare 边缘防护 403 {\"error\":{\"type\":\"forbidden\",\"message\":\"Request not allowed\"}}，host 为未知第三方域名（无官方域名证据）",
+  "owner": "engine",
+  "mode": "browser",
+  "target": {
+    "input": "https://api.example.com/v1",
+    "baseUrl": "https://api.example.com/v1",
+    "host": "api.example.com",
+    "provider": "openai",
+    "providerSource": "explicit"
+  },
+  "options": { "allowPaidProbes": false, "timeoutMs": 3000 },
+  "routes": [
+    {
+      "method": "GET",
+      "pathContains": "/v1/models",
+      "status": 403,
+      "headers": {
+        "content-type": "application/json",
+        "server": "cloudflare",
+        "cf-ray": "8f1a2b3c4d5e6f70-SJC"
+      },
+      "body": { "error": { "type": "forbidden", "message": "Request not allowed" } }
+    }
+  ],
+  "defaultResponse": {
+    "status": 403,
+    "headers": {
+      "content-type": "application/json",
+      "server": "cloudflare",
+      "cf-ray": "8f1a2b3c4d5e6f70-SJC"
+    },
+    "body": { "error": { "type": "forbidden", "message": "Request not allowed" } }
+  },
+  "expect": {
+    "verdictIn": ["inconclusive"],
+    "rationale": "★关键回归★ 边缘防护拦截是中性事件：Cloudflare / 公共 CA 均不得作为中转证据（见 constants.CALIBRATION）。此响应没有 API 自身的鉴权报文，必须判 inconclusive。",
+    "severity": "critical"
+  }
+}

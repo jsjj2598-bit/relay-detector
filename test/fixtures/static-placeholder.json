@@ -1,0 +1,33 @@
+{
+  "id": "static-placeholder",
+  "description": "纯静态占位页 / 无任何 API 证据：所有路径返回 nginx 默认 HTML 页面",
+  "owner": "engine",
+  "mode": "browser",
+  "target": {
+    "input": "https://static-page.example.com/v1",
+    "baseUrl": "https://static-page.example.com/v1",
+    "host": "static-page.example.com",
+    "provider": "openai",
+    "providerSource": "explicit"
+  },
+  "options": { "allowPaidProbes": false, "timeoutMs": 3000 },
+  "routes": [
+    {
+      "method": "ANY",
+      "pathContains": "",
+      "status": 200,
+      "headers": { "content-type": "text/html", "server": "nginx" },
+      "rawText": "<!DOCTYPE html><html><head><title>Welcome to nginx!</title></head><body><h1>Welcome to nginx!</h1><p>If you see this page, the nginx web server is successfully installed and working.</p></body></html>"
+    }
+  ],
+  "defaultResponse": {
+    "status": 200,
+    "headers": { "content-type": "text/html", "server": "nginx" },
+    "rawText": "<!DOCTYPE html><html><head><title>Welcome to nginx!</title></head><body><h1>Welcome to nginx!</h1></body></html>"
+  },
+  "expect": {
+    "verdictIn": ["inconclusive"],
+    "rationale": "只有通用 Web 服务器占位页，既无官方正向证据也无中转特征；不得因为 nginx 通用标记就判定方向。",
+    "severity": "high"
+  }
+}

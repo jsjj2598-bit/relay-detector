@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>中转站检测器 · Relay Detector</title>
+  <meta name="description" content="判断一个 API 基址是官方直连还是第三方中转站：多层指纹探测 + 评分报告，纯静态、可部署到 GitHub Pages，并显式呈现不确定性。" />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='24' font-size='24'%3E%F0%9F%94%8D%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./src/styles/main.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <header class="site-header no-print">
+    <div class="brand">
+      <span class="brand-title">🔍 中转站检测器</span>
+      <span class="brand-sub">Relay Detector · 多层指纹评分</span>
+    </div>
+    <div class="header-actions">
+      <a class="btn btn-ghost btn-sm" href="#help-panel">使用说明</a>
+      <button id="theme-toggle" class="btn btn-ghost btn-sm" type="button" aria-label="切换深浅色主题">🌙 深色</button>
+    </div>
+  </header>
+
+  <main id="main" class="page">
+    <section class="hero" aria-labelledby="hero-title">
+      <h1 id="hero-title" class="hero-title">这个 API 接口，是官方直连还是中转站？</h1>
+      <p class="hero-lead">
+        输入任意 OpenAI 兼容 <code>/v1</code>、Anthropic 或 Gemini 接口基址，工具会发出若干<strong>只读探测</strong>，
+        收集域名、TLS、响应头、错误报文、模型列表等多层指纹，并给出<strong>带证据链与不确定性</strong>的评分报告。
+      </p>
+      <ul class="hero-points">
+        <li>默认不发送任何可能计费的请求（付费探测需手动开启，并有明确警示）。</li>
+        <li>不硬编码中转站黑名单，只做特征判定；「Cloudflare / 公共 CA / 非官方域名」一律视为中性证据。</li>
+        <li>纯静态页面，无构建步骤，可直接托管在 GitHub Pages；也支持本地代理模式读取真实响应头与 TLS 证书。</li>
+      </ul>
+    </section>
+
+    <!-- ============================ 检测表单 ============================ -->
+    <section id="form-panel" class="panel no-print" aria-labelledby="form-title">
+      <div class="panel-head">
+        <h2 id="form-title" class="panel-title">检测目标</h2>
+        <p class="panel-sub">带 * 的为必填项</p>
+      </div>
+
+      <form id="detect-form" class="form" novalidate>
+        <div class="form-grid">
+          <div class="field field-wide">
+            <label class="label" for="base-url">API 基址 *</label>
+            <input
+              id="base-url"
+              class="input"
+              type="text"
+              name="baseUrl"
+              inputmode="url"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="https://api.example.com/v1"
+              list="official-examples"
+              aria-describedby="base-url-hint"
+            />
+            <datalist id="official-examples">
+              <option value="https://api.openai.com/v1">OpenAI 官方</option>
+              <option value="https://api.anthropic.com">Anthropic 官方</option>
+              <option value="https://generativelanguage.googleapis.com">Google Gemini 官方</option>
+            </datalist>
+            <p id="base-url-hint" class="hint">
+              可以带或不带 <code>/v1</code> 后缀，引擎会自动规范化。支持 http/https 基址。
+              快速填入：
+              <button class="btn btn-ghost btn-sm" type="button" data-fill-url="https://api.openai.com/v1">OpenAI</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-fill-url="https://api.anthropic.com">Anthropic</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-fill-url="https://generativelanguage.googleapis.com">Gemini</button>
+            </p>
+          </div>
+
+          <div class="field field-wide">
+            <label class="label" for="api-key">API Key <span class="optional">（可选，用于读取鉴权类错误报文）</span></label>
+            <input
+              id="api-key"
+              class="input"
+              type="password"
+              name="apiKey"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="sk-...（留空则只做匿名探测）"
+              aria-describedby="api-key-hint"
+            />
+            <p id="api-key-hint" class="hint">
+              密钥只存在于当前页面内存与本次请求头中，绝不会写入报告或历史记录；只有显式勾选「保存密钥到本机」时才会写入 localStorage。
+            </p>
+          </div>
+
+          <div class="field">
+            <label class="label" for="provider">协议族</label>
+            <select id="provider" class="select" name="provider"></select>
+            <p class="hint">选择「自动识别」时，引擎会根据域名与路径推断协议族。</p>
+          </div>
+
+          <div class="field">
+            <label class="label" for="timeout-ms">单条探测超时（毫秒）</label>
+            <input id="timeout-ms" class="input" type="number" name="timeoutMs" min="1000" max="120000" step="500" value="12000" />
+            <p class="hint">默认 12000 毫秒；网络较差时可适当调大。</p>
+          </div>
+
+          <div class="field field-wide">
+            <span class="label" id="mode-label">检测模式</span>
+            <div class="radio-row" role="radiogroup" aria-labelledby="mode-label">
+              <label class="choice">
+                <input type="radio" name="mode" value="browser" checked />
+                浏览器直连（无需本地服务，但受 CORS 限制）
+              </label>
+              <label class="choice">
+                <input type="radio" name="mode" value="proxy" />
+                本地代理（可读真实响应头与 TLS 证书）
+              </label>
+            </div>
+            <p id="browser-field" class="hint">
+              浏览器模式无法读取被 CORS 过滤的响应头，也读不到 TLS 证书；目标不允许跨域时探测会失败，这不代表端点有问题。
+            </p>
+          </div>
+
+          <div id="proxy-field" class="field hidden">
+            <label class="label" for="proxy-url">本地代理地址</label>
+            <input id="proxy-url" class="input" type="url" name="proxyUrl" value="http://127.0.0.1:8787" autocomplete="off" spellcheck="false" />
+            <p class="hint">需先在仓库根目录运行 <code>node proxy/server.mjs</code>（默认 127.0.0.1:8787）。</p>
+          </div>
+
+          <div class="field field-wide">
+            <span class="label">高级选项</span>
+            <div class="checkbox-row">
+              <label class="choice">
+                <input id="allow-paid" type="checkbox" name="allowPaidProbes" />
+                允许付费探测（会向目标发送可能计费的 chat / messages 请求）
+              </label>
+              <label class="choice">
+                <input id="save-key" type="checkbox" name="saveKey" />
+                保存密钥到本机（localStorage，默认关闭）
+              </label>
+            </div>
+            <p id="paid-warning" class="warning-note hidden" role="note">
+              ⚠️ 已开启付费探测：工具可能会发送真实计费的对话请求，从而消耗你的账户额度。
+              仅在确认目标可信、且愿意承担费用时开启；默认关闭时只会发出只读探测与一次必然失败的鉴权探测。
+            </p>
+          </div>
+        </div>
+
+        <div class="engine-row">
+          <span class="chip chip-plain" id="engine-status" role="status">正在加载引擎…</span>
+          <span>引擎状态：若显示「引擎未就绪」，页面其余功能仍可正常浏览，但无法发起检测。</span>
+        </div>
+
+        <div class="actions">
+          <button id="start-btn" class="btn btn-primary" type="submit">开始检测</button>
+          <button id="cancel-btn" class="btn btn-ghost hidden" type="button">取消检测</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- ============================ 结果区 ============================ -->
+    <section id="result-panel" class="panel" aria-labelledby="result-title">
+      <div class="panel-head">
+        <h2 id="result-title" class="panel-title">检测报告</h2>
+        <p class="panel-sub">报告是概率性判断，请结合「不确定性与误判声明」阅读</p>
+      </div>
+      <div id="result" aria-live="polite" aria-busy="false"></div>
+    </section>
+
+    <!-- ============================ 历史 ============================ -->
+    <section id="history-panel" class="panel no-print" aria-labelledby="history-title">
+      <div class="panel-head">
+        <h2 id="history-title" class="panel-title">检测历史</h2>
+        <p class="panel-sub">最多保留 20 条，仅记录主机名与结论，不含任何密钥</p>
+      </div>
+      <div id="history"></div>
+    </section>
+
+    <!-- ============================ 使用说明 ============================ -->
+    <section id="help-panel" class="panel" aria-labelledby="help-title">
+      <div class="panel-head">
+        <h2 id="help-title" class="panel-title">怎么用 / 为什么有局限 / 如何跑本地代理</h2>
+      </div>
+
+      <div class="help-grid">
+        <article class="help-card">
+          <h3>① 怎么用</h3>
+          <ol class="step-list">
+            <li>填入 API 基址（例如 <code>https://api.example.com/v1</code>）。</li>
+            <li>需要读取鉴权类报错时再填 API Key；不确定时留空即可。</li>
+            <li>选择协议族（不确定就选「自动识别」）与检测模式。</li>
+            <li>点击「开始检测」，阅读报告：先看证据强度，再看信号卡片里的 weight / confidence / 证据原文。</li>
+            <li>用「复制完整报告」或「下载 report.json」保存结论，便于对照与复核。</li>
+          </ol>
+        </article>
+
+        <article class="help-card">
+          <h3>② 为什么浏览器模式有局限</h3>
+          <ul class="step-list">
+            <li><strong>CORS 会过滤响应头</strong>：浏览器只能看到白名单内的少数头，检测所需的官方/网关特征头往往看不到。</li>
+            <li><strong>读不到 TLS 证书</strong>：浏览器不暴露对端证书链与签发者，而这是 TSL 层最有价值的证据之一。</li>
+            <li><strong>看不到真实网络层信息</strong>：IP、跳数、CDN 归属等都不可见。</li>
+            <li>因此浏览器模式证据强度通常偏低，容易被判为「证据不足 / 无法判定」——这是保守设计，不是工具失效。</li>
+            <li><strong>官方响应头在反向代理下会被原样透传</strong>，因此仅凭响应头判定直连是不可靠的；本项目以<strong>域名身份</strong>作为直连的核心依据。</li>
+          </ul>
+        </article>
+
+        <article class="help-card">
+          <h3>③ 如何跑本地代理</h3>
+          <ol class="step-list">
+            <li>在仓库根目录执行 <code>node proxy/server.mjs</code>（默认监听 <code>127.0.0.1:8787</code>）。</li>
+            <li>页面右上角切换到「本地代理」模式，代理地址保持默认即可。</li>
+            <li>代理会代替浏览器发起请求并回显真实响应头，同时用 <code>GET /inspect</code> 读取对端 TLS 证书。</li>
+            <li>代理默认拒绝内网 / 环回目标，并带超时、体积上限与跳数校验；详见仓库 <code>proxy/README.md</code>。</li>
+            <li>本地验证静态页面：访问 <code>http://127.0.0.1:8787/</code> 即可（等价 GitHub Pages 根目录）。</li>
+          </ol>
+        </article>
+
+        <article class="help-card">
+          <h3>④ 结果怎么读</h3>
+          <ul class="step-list">
+            <li><strong>score</strong>：越高越像中转站；它只由有方向的证据比例决定。</li>
+            <li><strong>evidenceStrength</strong>：证据强度。低于 40% 时无论分数如何都会判为「证据不足 / 无法判定」。</li>
+            <li><strong>weight / confidence</strong>：单条特征的指示强度与解读可信度，两者相乘再乘类别权重才是「贡献值」。</li>
+            <li><strong>中性证据</strong>：Cloudflare、公共 CA 证书、非官方域名等只增加证据强度，不指向任何方向。</li>
+            <li>本项目不提供「确定是/不是」的结论；请把报告当作线索集合，并用账单主体、官方文档交叉验证。</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <p class="disclaimer">
+        <strong>免责声明：</strong>本工具基于可观测特征做概率性判断，不构成任何确定性结论、法律意见或安全保证；
+        特征可能被目标伪造、隐藏或受网络环境干扰。请勿仅凭本报告对任何服务做出付费、投诉或封禁决策。
+        所有探测默认只读且不计费；使用付费探测、localStorage 保存密钥等行为由使用者自行承担风险。
+      </p>
+      <p class="footer-meta">
+        relay-detector · 版本 <span id="app-version">—</span> · 纯静态 ESM + 原生 CSS，可直接部署到 GitHub Pages ·
+        接口契约 FROZEN v1
+      </p>
+    </div>
+  </footer>
+
+  <script type="module" src="./src/ui/app.js"></script>
+</body>
+</html>

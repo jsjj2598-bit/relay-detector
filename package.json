@@ -12,7 +12,7 @@
   "scripts": {
     "start": "node proxy/server.mjs",
     "proxy": "node proxy/server.mjs",
-    "test": "node --test test/",
+    "test": "node --test \"test/**/*.test.mjs\"",
     "fingerprint": "node tools/fingerprint-official.mjs"
   }
 }

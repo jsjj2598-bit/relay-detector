@@ -1,0 +1,110 @@
+# 校验并部署到 GitHub Pages
+#
+# 流程：先跑 test/ 下的 Node 内置测试（无测试文件时优雅跳过），再上传仓库根目录作为站点产物。
+# 页面本身没有构建步骤：index.html + src/** + 原生 CSS/ESM 就是全部产物。
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 只授予部署 Pages 所需的最小权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只允许一个 Pages 部署，新的推送取消进行中的旧部署
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: 测试与静态校验
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # 与实测环境一致；`node --test "test/**/*.test.mjs"` 的 glob 展开需要 Node 21+
+          node-version: '24'
+
+      - name: 打印运行时版本
+        run: node --version
+
+      - name: 语法检查（若存在 JS 源文件）
+        run: |
+          set -e
+          found=0
+          for f in $(find src proxy tools \( -name '*.js' -o -name '*.mjs' \) 2>/dev/null); do
+            node --check "$f"
+            found=$((found + 1))
+          done
+          echo "已检查 $found 个 JS/MJS 文件"
+
+      - name: 单元测试（无测试文件时优雅跳过）
+        run: |
+          if find test -type f \( -name '*.test.js' -o -name '*.test.mjs' \) -print -quit 2>/dev/null | grep -q .; then
+            # 必须走 npm test（= node --test "test/**/*.test.mjs"）。
+            # ⚠️ 禁止写成 `node --test test/`：Node 24 会把目录当模块 require，
+            #    报 Cannot find module '.../test' 并以 exit 1 结束，一个测试都不会跑。
+            npm test
+          else
+            echo "test/ 下暂无测试文件，跳过测试。"
+          fi
+
+      - name: 校验页面入口与关键资源（存在性检查 + 提示）
+        run: |
+          for f in index.html src/ui/app.js src/ui/render.js src/styles/main.css src/core/engine.js src/core/constants.js; do
+            if [ -f "$f" ]; then echo "OK    $f"; else echo "WARN  缺少 $f"; fi
+          done
+          test -f index.html || { echo "缺少 index.html，无法部署"; exit 1; }
+          echo "页面入口存在，可以部署"
+
+      - name: 检查页面不直连规则内部实现
+        run: |
+          if grep -RIn -E "from ['\"].*core/rules|from ['\"].*providers/" index.html src/ui 2>/dev/null; then
+            echo "src/ui 不得直接 import rules/** 或 providers/**（契约 2.6）"; exit 1
+          fi
+          echo "UI 仅通过 engine/render 连接，符合契约 2.6"
+
+  build:
+    name: 打包 Pages 产物
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      - name: 准备站点产物（仓库根目录，等价本地代理的静态托管）
+        run: |
+          # GitHub Pages 默认走 Jekyll，会忽略下划线开头的目录；本项目用不到 Jekyll
+          touch .nojekyll
+          # 产物即仓库根目录，只剔除 VCS 元数据（不把 .git 目录发布到 Pages 上）
+          rm -rf .git
+          ls -la
+
+      - name: 上传产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  deploy:
+    name: 部署
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,56 @@
+{
+  "id": "aggregated-models",
+  "description": "聚合型 GET /v1/models：同一端点混入 gpt-/claude-/gemini-/qwen-/deepseek-/glm- 等多个厂商模型家族",
+  "owner": "engine",
+  "mode": "browser",
+  "target": {
+    "input": "https://multi-upstream.example.com/v1",
+    "baseUrl": "https://multi-upstream.example.com/v1",
+    "host": "multi-upstream.example.com",
+    "provider": "openai",
+    "providerSource": "explicit"
+  },
+  "options": { "allowPaidProbes": false, "timeoutMs": 3000 },
+  "routes": [
+    {
+      "method": "GET",
+      "pathContains": "/v1/models",
+      "status": 200,
+      "headers": { "content-type": "application/json" },
+      "body": {
+        "object": "list",
+        "data": [
+          { "id": "gpt-4o", "object": "model" },
+          { "id": "gpt-4o-mini", "object": "model" },
+          { "id": "o3-mini", "object": "model" },
+          { "id": "claude-3-5-sonnet-20241022", "object": "model" },
+          { "id": "claude-3-opus-20240229", "object": "model" },
+          { "id": "gemini-1.5-pro", "object": "model" },
+          { "id": "qwen-max", "object": "model" },
+          { "id": "deepseek-chat", "object": "model" },
+          { "id": "glm-4", "object": "model" },
+          { "id": "moonshot-v1-8k", "object": "model" },
+          { "id": "text-embedding-3-small", "object": "model" }
+        ]
+      }
+    }
+  ],
+  "defaultResponse": {
+    "status": 401,
+    "headers": { "content-type": "application/json" },
+    "body": {
+      "error": {
+        "message": "Invalid API key",
+        "type": "authentication_error",
+        "param": null,
+        "code": "invalid_api_key"
+      }
+    }
+  },
+  "expect": {
+    "direction": "relay",
+    "verdictNotIn": ["official", "likely-official"],
+    "rationale": "非官方域名上出现多厂商模型家族聚合（claude-/gemini-/qwen-/deepseek-/glm-）说明存在多上游转发，方向必须为 relay。",
+    "severity": "high"
+  }
+}

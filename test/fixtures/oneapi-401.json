@@ -1,0 +1,34 @@
+{
+  "id": "oneapi-401",
+  "description": "one-api / new-api 风格扁平业务包装错误体 {\"code\":401,\"message\":\"无效的令牌\",\"data\":null}",
+  "owner": "engine",
+  "mode": "browser",
+  "target": {
+    "input": "https://relay-gw.example.com/v1",
+    "baseUrl": "https://relay-gw.example.com/v1",
+    "host": "relay-gw.example.com",
+    "provider": "openai",
+    "providerSource": "explicit"
+  },
+  "options": { "allowPaidProbes": false, "timeoutMs": 3000 },
+  "routes": [
+    {
+      "method": "GET",
+      "pathContains": "/v1/models",
+      "status": 401,
+      "headers": { "content-type": "application/json", "server": "nginx" },
+      "body": { "code": 401, "message": "无效的令牌", "data": null }
+    }
+  ],
+  "defaultResponse": {
+    "status": 401,
+    "headers": { "content-type": "application/json", "server": "nginx" },
+    "body": { "code": 401, "message": "无效的令牌", "data": null }
+  },
+  "expect": {
+    "direction": "relay",
+    "verdictNotIn": ["official", "likely-official"],
+    "rationale": "one-api 扁平包装体（code/message/data:null）+ 中文网关报文，是已知中转网关指纹，方向必须为 relay。",
+    "severity": "high"
+  }
+}

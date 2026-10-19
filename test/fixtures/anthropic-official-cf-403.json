@@ -1,0 +1,41 @@
+{
+  "id": "anthropic-official-cf-403",
+  "description": "实测校准场景：api.anthropic.com 官方端点本身位于 Cloudflare 后，受限网络下返回 CF 403 「Request not allowed」",
+  "owner": "engine",
+  "mode": "browser",
+  "target": {
+    "input": "https://api.anthropic.com",
+    "baseUrl": "https://api.anthropic.com",
+    "host": "api.anthropic.com",
+    "provider": "anthropic",
+    "providerSource": "explicit"
+  },
+  "options": { "allowPaidProbes": false, "timeoutMs": 3000 },
+  "routes": [
+    {
+      "method": "ANY",
+      "pathContains": "",
+      "status": 403,
+      "headers": {
+        "content-type": "application/json",
+        "server": "cloudflare",
+        "cf-ray": "9a0b1c2d3e4f5061-SJC"
+      },
+      "body": { "error": { "type": "forbidden", "message": "Request not allowed" } }
+    }
+  ],
+  "defaultResponse": {
+    "status": 403,
+    "headers": {
+      "content-type": "application/json",
+      "server": "cloudflare",
+      "cf-ray": "9a0b1c2d3e4f5061-SJC"
+    },
+    "body": { "error": { "type": "forbidden", "message": "Request not allowed" } }
+  },
+  "expect": {
+    "verdictNotIn": ["relay", "likely-relay"],
+    "rationale": "★最大失败模式★ 官方直连端点位于 Cloudflare 后，证书由 Google Trust Services 签发。CDN 与公共 CA 属中性证据；把它判成中转站是本项目最严重的误判。允许 official/likely-official/inconclusive。",
+    "severity": "critical"
+  }
+}

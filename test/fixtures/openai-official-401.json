@@ -1,0 +1,57 @@
+{
+  "id": "openai-official-401",
+  "description": "官方风格 OpenAI 401 错误体 + openai-version / x-request-id 官方响应头，host 为官方白名单域名",
+  "owner": "engine",
+  "mode": "browser",
+  "target": {
+    "input": "https://api.openai.com/v1",
+    "baseUrl": "https://api.openai.com/v1",
+    "host": "api.openai.com",
+    "provider": "openai",
+    "providerSource": "explicit"
+  },
+  "options": { "allowPaidProbes": false, "timeoutMs": 3000 },
+  "routes": [
+    {
+      "method": "GET",
+      "pathContains": "/v1/models",
+      "status": 401,
+      "headers": {
+        "content-type": "application/json",
+        "openai-version": "2020-10-01",
+        "openai-processing-ms": "14",
+        "openai-organization": "org-verifierFixture",
+        "x-request-id": "req_0123456789abcdef0123456789abcdef"
+      },
+      "body": {
+        "error": {
+          "message": "Incorrect API key provided: sk-***. You can find your API key at https://platform.openai.com/account/api-keys.",
+          "type": "invalid_request_error",
+          "param": null,
+          "code": "invalid_api_key"
+        }
+      }
+    }
+  ],
+  "defaultResponse": {
+    "status": 401,
+    "headers": {
+      "content-type": "application/json",
+      "openai-version": "2020-10-01",
+      "x-request-id": "req_0123456789abcdef0123456789abcdef"
+    },
+    "body": {
+      "error": {
+        "message": "Incorrect API key provided: sk-***.",
+        "type": "invalid_request_error",
+        "param": null,
+        "code": "invalid_api_key"
+      }
+    }
+  },
+  "expect": {
+    "verdictNotIn": ["relay", "likely-relay"],
+    "rationale": "官方白名单域名 + 官方错误体字段组合 + openai-version / x-request-id 官方头，绝不能被判为 relay。",
+    "severity": "critical"
+  }
+}

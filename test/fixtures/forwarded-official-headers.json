@@ -1,0 +1,57 @@
+{
+  "id": "forwarded-official-headers",
+  "description": "反向代理透传：未知域名上返回完全真实的官方 OpenAI 响应头 + 官方错误报文（上游为真，但域名身份不是官方）",
+  "owner": "engine",
+  "mode": "browser",
+  "target": {
+    "input": "https://proxy-gw.example.com/v1",
+    "baseUrl": "https://proxy-gw.example.com/v1",
+    "host": "proxy-gw.example.com",
+    "provider": "openai",
+    "providerSource": "explicit"
+  },
+  "options": { "allowPaidProbes": false, "timeoutMs": 3000 },
+  "routes": [
+    {
+      "method": "GET",
+      "pathContains": "/v1/models",
+      "status": 401,
+      "headers": {
+        "content-type": "application/json",
+        "openai-version": "2020-10-01",
+        "openai-processing-ms": "23",
+        "openai-organization": "org-realUpstream",
+        "x-request-id": "req_abcdefabcdefabcdefabcdefabcdefab"
+      },
+      "body": {
+        "error": {
+          "message": "Incorrect API key provided: sk-***.",
+          "type": "invalid_request_error",
+          "param": null,
+          "code": "invalid_api_key"
+        }
+      }
+    }
+  ],
+  "defaultResponse": {
+    "status": 401,
+    "headers": {
+      "content-type": "application/json",
+      "openai-version": "2020-10-01",
+      "x-request-id": "req_abcdefabcdefabcdefabcdefabcdefab"
+    },
+    "body": {
+      "error": {
+        "message": "Incorrect API key provided: sk-***.",
+        "type": "invalid_request_error",
+        "param": null,
+        "code": "invalid_api_key"
+      }
+    }
+  },
+  "expect": {
+    "verdictIn": ["inconclusive"],
+    "rationale": "★v1.2 关键回归★ 官方响应头在反向代理下会被原样透传，「响应头像官方」只证明上游是真的，不能证明直连。没有 url 域名身份证据时必须降级为 inconclusive（flags.upstreamLooksGenuine=true）。",
+    "severity": "critical"
+  }
+}
