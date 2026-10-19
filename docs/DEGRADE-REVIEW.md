@@ -21,6 +21,10 @@
 
 **总体判断：可以交付。** 4 条「建议」不改变契约核心语义、不影响默认路径结论；前 3 条建议修复成本低、收益明确，建议本轮收尾前处理（至少补 warning / 文档说明）。
 
+> **第二轮更新（2026-10-19）**：S1 / S2 / S3 已由 degrade-core 修复并经本复核脚本验证通过；
+> S4 已写入 `DEGRADE-NOTES §9.11` 并在报告 `notes` 中给出提示；N1 已文档化，N2/N3/N4 未修（非阻断）。
+> 第二轮结果与残留边界见 **§7**。全量回归 `npm test` **237/237**、acceptance **30/30**。
+
 ---
 
 ## 1. 复核范围与方法（可复现）
@@ -231,3 +235,63 @@ npm test                               # 全量回归（226/226）
 ```
 
 > 这些临时脚本不属于交付物；如需长期保留，建议 Lead 决定是否把其中关键断言（S1 边界、S2 limits、S3 近期占比、隐私标记）转交 auth-test 纳入 `test/**`。
+
+---
+
+## 7. 第二轮复核：S1–S4 修复验证（2026-10-19）
+
+degrade-core 按 §3 建议完成修复后，我用独立脚本重新验证（`%TEMP%\degrade-recheck-v2.mjs`、`%TEMP%\degrade-trim-check.mjs`）。**结论：S1/S2/S3/S4 修复均验证通过，无新增缺陷；仅留 1 条文档级残留建议。**
+
+### 7.1 回归基线
+
+| 入口 | 结果 |
+| --- | --- |
+| `npm test` | **237/237 pass，0 fail，0 skip** |
+| `node tools/acceptance-degrade.mjs` | **30/30 pass** |
+| `%TEMP%\degrade-review.mjs`（原 171 项独立复核） | **171/171 PASS**（无需改动） |
+| `%TEMP%\degrade-boundary-check.mjs` | **ALL PASS**（S1、S2 原失败项已转绿） |
+| `%TEMP%\degrade-recheck-v2.mjs`（新增 S1–S4 定向验证） | **ALL PASS**（45 项） |
+
+### 7.2 S1（score 舍入后再判 verdict）—— ✅ 修复验证通过
+
+- `badness=0.6×3` → `{score:60, verdict:'likely-degraded'}`；`0.3×3` → `{score:30, verdict:'suspicious'}`；
+  边界 `59.99 → suspicious`、`29.99 → stable` 均正确。
+- 额外检查：**evidenceStrength 先 `round(4)` 再与 0.35 比较**是否存在「raw<0.35 但舍入后放过」的整数组合
+  （暴力枚举 ok 3–13 × usable 20–5000）→ **不存在**，无隐藏边界问题。
+
+### 7.3 S2（maxRecords 保留最新 + 计数/warning）—— ✅ 修复验证通过
+
+| 用例 | 结果 |
+| --- | --- |
+| 300k 行 + `maxRecords:1000`（显式放宽 `maxBytesPerFile`） | `parsed=1000, total=300000, skipped=299000`，warning 明确「按时间戳保留最新 1000 条（丢弃 299000 条较早记录）」，保留最新记录；耗时 ~1.5s |
+| 乱序输入 1000 行 + `maxRecords:50` | 按时间戳取最新 50 条，`skipped=950` |
+| 多文件（2×600 行）+ `maxRecords:1000` | 全局取最新 1000 条，`skipped` 分摊合计 200（A 文件 200 / B 文件 0） |
+| 含无时间戳行 + 上限 | 优先保留 timed 最新记录，warning 说明「没有时间戳的行优先丢弃」 |
+| CSV 120 行 + `maxRecords:10` | 保留最新 10 行，`total=120 / skipped=110`，warning |
+| ChatGPT 导出 24 条 + `maxRecords:5` | 保留最新 5 条，`total=24 / skipped=19`，warning |
+| 小文件（5 条）回归 | 不裁剪、`skipped=0`、无 warning |
+| 默认 `maxBytesPerFile=64MB` | 超大文件仍被跳过（契约默认行为，**故意保留**；`files[].error` 明确原因，非缺陷） |
+
+### 7.4 S3（变化点边缘窗口）—— ✅ 修复验证通过（含残留边界）
+
+- 「1000 条、仅最后 5% 退化」→ `likely-degraded`（split≈925/75，`truncation_spike` critical）；
+- 稳定 1000 条 → `stable`、0 critical；稳定 + ±10% 噪声 → 仍 `stable`、0 critical（新增边缘窗口未引入误报）。
+- **残留边界（建议写入文档，不阻断）**：候选窗口最小 5%，因此
+  - 仅最后 **3%** 退化 → `suspicious`（45.73 分，无 critical）；
+  - 仅最后 **≤2%** 退化 → `stable`（漏判）。
+  这是启发式算法的固有边界（真实日志若「3 年历史 + 最近 3 天变差」且记录量巨大，占比可能 <5%）；建议在
+  `DEGRADE-NOTES §9` 明确写出「近期退化占比 <5% 时可能漏判，可通过截取最近 N 天日志再分析」。
+
+### 7.5 S4 / N1 / N2–N4
+
+- **S4** ✅：Claude Code 单格式分析时 `model_substitution=insufficient`，报告 `notes` 出现
+  「Claude Code 日志不记录请求模型…要检测模型替换，请同时上传 API 日志或账单 CSV」。
+- **N1** ✅ 已文档化（`scorer.js` JSDoc / `DEGRADE-NOTES §6` 说明第 3 参 context；实测报告值与 2 参直接调用值可不同，属已知设计）。
+- **N2**（parseLogFiles thenable）仍保留：`await` 与同步两种调用均正常（复核已实测），非阻断。
+- **N3/N4** 未动（识别置信度边界、200k 记录耗时），非阻断。
+
+### 7.6 第二轮结论
+
+**S1–S4 全部验证通过，可以交付**；唯一建议是把 §7.4 的「<5% 近期占比可能漏判」补进
+`docs/DEGRADE-NOTES.md §9 已知局限`（一行文档即可），其余无待办。原报告 §3 的 S1/S2/S3/S4
+条目保留为历史记录（修复前状态），本 §7 为准。
