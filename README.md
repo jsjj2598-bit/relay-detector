@@ -1,29 +1,32 @@
 # relay-detector · API 中转站识别器
 
-![中转站检测器：两根正交的轴](assets/og-cover.png)
+![中转站检测器：三根正交的轴](assets/og-cover.png)
 
-判断一个 OpenAI 兼容 / Anthropic Claude / Google Gemini 的 API 基址，回答**两个正交的问题**：
+判断一个 OpenAI 兼容 / Anthropic Claude / Google Gemini 的 API 基址，回答**三个正交的问题**：
 
 | 轴 | 问题 | 输出 |
 | --- | --- | --- |
 | **连接轴** | 我连的是**官方直连**，还是**第三方中转站**？ | `official` / `likely-official` / `inconclusive` / `likely-relay` / `relay` |
 | **真伪轴** | 第三方上游给我的**是不是真模型**？ | `excellent` / `passed` / `marginal` / `failed` / `invalid` |
+| **退化轴**（v3） | 我最近用的这个 AI，**能力是不是在下降**？ | `stable` / `suspicious` / `likely-degraded` / `insufficient` |
 
-两根轴**绝不合并成一个分数**，因为它们的结论完全不同：
+三根轴**绝不合并成一个分数**，因为它们的结论完全不同：
 
 - `relay` + `passed` → 中转站，但上游是真模型 → **可用**
 - `relay` + `failed` → 中转站，且上游疑似被掉包 → **建议更换**
 - `official` → 真伪轴无意义（官方直连，无需验真）
+- 退化轴 `likely-degraded` → 你自己的历史日志显示**截断率飙升 / 输出变短 / thinking 消失 / 模型被替换**
 
 特点：
 
 - 纯静态、无构建步骤：整个页面就是原生 ESM + 原生 CSS，可直接托管到 GitHub Pages。
 - 可选的本地 Node 代理（`proxy/server.mjs`）补上浏览器拿不到的两类证据：**完整响应头**与 **TLS 证书**。
-- **API Key 不经过任何第三方服务器**：纯前端，Key 只在你的浏览器内存与请求头里。
+- 桌面端（`desktop/`）内置本地代理，**彻底绕过浏览器 CORS**。
+- **不经过任何第三方服务器**：API Key 只在浏览器内存与请求头里；**使用日志只在本地解析，一条都不上传**。
 - 不硬编码中转站黑名单，只做**特征**判定；每个结论都附带 `evidence` 与 `confidence`。
 - 所有文案为中文；报告明确展示不确定性，**不声称「100% 确定」**。
 
-> 接口契约：[docs/CONTRACT.md](docs/CONTRACT.md)（v1 连接轴 + v2 真伪轴，已冻结）。
+> 接口契约：[docs/CONTRACT.md](docs/CONTRACT.md)（v1 连接轴 + v2 真伪轴 + v3 退化轴，已冻结）。
 > 设计取舍调研：[docs/LEARNINGS-FROM-VERIDROP.md](docs/LEARNINGS-FROM-VERIDROP.md)。
 
 ---
@@ -184,6 +187,59 @@ Claude 开启扩展思考时，响应 `content[]` 里的 `thinking` / `redacted_
 
 ---
 
+## 判定原理 · 退化轴（v3，基于你自己上传的使用日志）
+
+### 先说清楚它不是什么
+
+**这不是 IQ 测试，也不是「能力测量」。** 日志里没有「答案正确性」这个字段，
+所以任何工具都无法从日志直接证明「模型变笨了」。
+
+它做的是：从你的日志里提取**可观测的行为信号**，把时间轴切成**早期 / 近期**两段，
+比较指标是否发生了**系统性变化**，并给出「有/没有退化迹象」的统计判断。
+
+### 它会看什么（13 个指标）
+
+| 指标 | 变差的信号 | 说明 |
+| --- | --- | --- |
+| **截断率** | `finish_reason=length/max_tokens` 占比上升 | 输出被硬截断，最典型的「能力被削」表现 |
+| **模型替换** | 响应的 `model` 与请求的模型不一致 | 请求 Opus 却返回更便宜的型号 |
+| **thinking 存在率 / 占比** | 从有到无、或占比骤降 | 中转站关掉思考、或换成不支持思考的通道 |
+| **输出长度** | 中位数下降 | 回答变短（也可能是任务变了，需结合其它指标） |
+| **token 膨胀** | 字符数/输出 token 下降 | 同样内容被多算 token |
+| **延迟** | 中位数上升 | 多了一跳转发、或上游降级 |
+| **错误率 / 拒答率 / 空回答率 / 重复率** | 上升 | 稳定性退化 |
+| **缓存命中率** | 下降 | 可能换了渠道 |
+
+只有**数据足够**的指标才参与评分；数据不足的直接标「数据不足」并**不进分母**
+（与真伪轴的 `skip` 同源，避免把「测不了」当成「变差了」）。
+
+### 三个必须理解的语义
+
+1. **样本不足 ≠ 稳定**：有效记录少于 20 条、或可用指标少于 3 个时，结论是
+   **`insufficient`（无法判断）**，而不是「未见退化」。
+2. **critical 一票定案**：模型被替换、截断率 >15% 且翻 5 倍、thinking 从 >50% 掉到 ≈0，
+   任意一条成立即判 `likely-degraded`，不管其它指标多好看。
+3. **「检测无效」与「未达标」分开**：样本不够只显示灰色「无法判断」，不会给你一个误导性的低分。
+
+### 支持哪些日志
+
+Claude Code 会话日志、你自己保存的 API 请求/响应日志（JSON/JSONL）、
+中转站用量/账单 CSV、ChatGPT 官方导出 `conversations.json`。
+格式由**内容自动识别**（改名成别的扩展名也能认）。详见 [docs/LOG-FORMATS.md](docs/LOG-FORMATS.md)。
+
+### 隐私（这条是硬的）
+
+**日志一条都不上传。** 用 `FileReader` 在浏览器内存里解析，零网络请求；
+报告里只有计数、比率、中位数、模型名，**没有原文，也没有文件名**。
+想看效果但不想用真实日志？先生成一套合成日志：
+
+```powershell
+npm run logs:gen          # 生成 samples/ 下的 stable / degraded 两套假日志
+npm run accept:degrade    # 命令行直接验收整条链路
+```
+
+---
+
 ## 局限性（必读）
 
 ### 连接轴
@@ -217,13 +273,29 @@ Claude 开启扩展思考时，响应 `content[]` 里的 `thinking` / `redacted_
     本项目只把行为/身份类信号当极弱辅助。
 13. **检测会消耗真实额度**：`standard` 档约 8 个请求、含 thinking 的长输出。请用小额 Key 测试。
 
+### 退化轴（v3）
+
+14. **日志无法证明「智力下降」。** 日志里没有答案正确性，只能观测**行为变化**。
+    「输出变短」既可能是降智，也可能是你的任务变简单了、系统提示词改了、缓存策略变了。
+    因此结论永远是「统计上存在系统性变化的迹象」，请结合上下文读。
+15. **需要足够的历史跨度才有意义。** 同一小时内的一批日志只能做整体统计，
+    无法判断趋势；建议至少跨越几天、有效记录 ≥ 200 条。
+16. **对「换模型」的检测依赖日志里同时有请求模型与响应模型**；
+    很多客户端日志只记响应模型，这时只能看模型集合是否变化（信号更弱）。
+17. **账单/用量 CSV 缺 thinking 与正文**，`thinking_*`、`refusal_rate`、`repetition_rate`
+    等指标会自动「数据不足」并**不参与评分**（不会因此误判）。
+18. **无法识别「同厂静默降级」**（例如同一个模型名背后换成更小的版本、或路由到不同区域），
+    除非日志本身记录了模型版本或 token 分布发生明显变化。
+19. **不做跨用户基准对比**：本项目纯本地，没有别人的数据可参照，
+    所以只能说「你自己的前后期是否变化」，不能说「你是否比行业平均差」。
+
 ### 通用
 
-14. **本机网络受限导致的证据缺失**：开发环境实测仅 `api.anthropic.com` 可达，
+20. **本机网络受限导致的证据缺失**：开发环境实测仅 `api.anthropic.com` 可达，
     `api.openai.com` 与 `generativelanguage.googleapis.com` 不可达；因此部分官方头/证书事实
     是「高置信常识」而非本机实测，`confidence` 取值偏保守（0.5~0.65）。
-15. **分数不是概率**：权重与阈值是人为设定的启发式，跨网络环境可能偏差。
-16. **不做请求内容的隐私审计**：代理会把你提供的 Key 原样转发给目标（必须如此才能拿到真实响应），
+21. **分数不是概率**：权重与阈值是人为设定的启发式，跨网络环境可能偏差。
+22. **不做请求内容的隐私审计**：代理会把你提供的 Key 原样转发给目标（必须如此才能拿到真实响应），
     请自行确认目标可信。
 17. **HTTPS 页面 → `http://127.0.0.1` 可能被混合内容策略拦截**：部分浏览器在 HTTPS 页面上
     会拦截到 `http://127.0.0.1:8787` 的请求。推荐直接用代理自己托管的页面
@@ -344,13 +416,19 @@ npm run desktop:electron
 │  │  ├─ probes.js                 ProbeSpec 执行器（脱敏 / 截断 / 超时）
 │  │  ├─ signatures.js             已知网关软件指纹
 │  │  ├─ rules/                    连接轴规则（url/tls/headers/error/models/payload/behavior/signature）
-│  │  └─ auth/                     v2 真伪轴
-│  │     ├─ index.js               runAuthenticity / estimateCost / AUTH_MODES（公开 API）
-│  │     ├─ scorer.js              加权平均 / critical 封顶 / 致命错误识别
-│  │     ├─ runner.js              档位编排、maxRequests 硬上限、密钥 scrub
-│  │     ├─ models.js              模型能力表（thinking 支持等）
-│  │     ├─ protocol.js            三协议请求构造与响应解析（纯逻辑）
-│  │     └─ detectors/             10 个真伪检测器
+│  │  ├─ auth/                     v2 真伪轴
+│  │  │  ├─ index.js               runAuthenticity / estimateCost / AUTH_MODES（公开 API）
+│  │  │  ├─ scorer.js              加权平均 / critical 封顶 / 致命错误识别
+│  │  │  ├─ runner.js              档位编排、maxRequests 硬上限、密钥 scrub
+│  │  │  ├─ models.js              模型能力表（thinking 支持等）
+│  │  │  ├─ protocol.js            三协议请求构造与响应解析（纯逻辑）
+│  │  │  └─ detectors/             10 个真伪检测器
+│  │  └─ degrade/                  v3 退化轴（降智诊断）
+│  │     ├─ index.js               parseLogFiles / analyzeDegradation（公开 API）
+│  │     ├─ parsers/               5 种日志格式解析 + 内容自动识别
+│  │     ├─ metrics/               13 个指标（截断率/模型替换/thinking/长度/token 膨胀…）
+│  │     ├─ segment.js             前后期切分与变化点探测
+│  │     └─ scrub.js               隐私剥离（报告里绝不含原文/文件名）
 │  ├─ providers/                   openai.js / anthropic.js / gemini.js
 │  ├─ ui/                          app.js / render.js / components.js / authenticity.js / form-state.js / auth-api.js
 │  └─ styles/main.css
@@ -358,14 +436,20 @@ npm run desktop:electron
 ├─ test/                           Node 内置测试 + 离线 fixture
 ├─ tools/
 │  ├─ check.mjs                    命令行验证工具（--demo 零依赖自证 / 验你自己的站）
-│  ├─ fingerprint-official.mjs     官方端点指纹采集（匿名，不消耗额度）
+│  ├─ gen-sample-logs.mjs          生成合成日志（5 种格式 × stable/degraded，可安全分享）
+│  ├─ acceptance-degrade.mjs       退化轴端到端验收（30 项断言）
 │  ├─ acceptance.mjs               连接轴端到端验收（真实 HTTP 假中转站）
-│  └─ acceptance-auth.mjs          真伪轴端到端验收（模拟真 Claude / 冒充 / 跨厂商泄漏 / 无渠道）
+│  ├─ acceptance-auth.mjs          真伪轴端到端验收（模拟真 Claude / 冒充 / 跨厂商泄漏 / 无渠道）
+│  └─ fingerprint-official.mjs     官方端点指纹采集（匿名，不消耗额度）
 ├─ docs/
 │  ├─ LOCAL-VERIFICATION.md        本地验证指南（逐层步骤 + 预期输出 + 排错）
-│  ├─ CONTRACT.md                  接口契约（v1 + v2，已冻结）
+│  ├─ LOG-FORMATS.md               支持的日志格式、字段提取、脱敏样例、扩展方法
+│  ├─ DEPLOY.md                    上线与分发（双托管 / 桌面端 / CORS 方案 / 安全红线）
+│  ├─ CONTRACT.md                  接口契约（v1 连接轴 + v2 真伪轴 + v3 退化轴，已冻结）
 │  ├─ ENGINE-NOTES.md              71 条规则依据与置信度
 │  ├─ AUTH-NOTES.md                10 个真伪检测器算法与阈值
+│  ├─ DEGRADE-NOTES.md             13 个退化指标口径、阈值来源与局限
+│  ├─ DEGRADE-REVIEW.md            v3 独立复核报告（171 项断言 + 4 条改进建议）
 │  └─ LEARNINGS-FROM-VERIDROP.md   调研结论与取舍
 └─ .github/workflows/pages.yml     测试 + GitHub Pages 部署
 ```
@@ -378,8 +462,10 @@ npm run desktop:electron
 
 ```bash
 npm run verify                    # 一键验证（推荐）
-npm test                          # 单元 + 契约 + 离线 fixture（177 项，无需联网）
+npm test                          # 单元 + 契约 + 离线 fixture（237 项，无需联网）
                                   # = node --test "test/**/*.test.mjs"
+npm run logs:gen                  # 生成 samples/ 下的合成日志（5 种格式 × stable/degraded）
+npm run accept:degrade            # 退化轴端到端验收（30 项断言，不联网）
 node tools/check.mjs --demo kiro  # 零依赖自证：模拟冒充 Claude（不需要任何 Key）
 node tools/acceptance-auth.mjs    # 真伪轴端到端验收（本地假中转站，不联网）
 node tools/acceptance.mjs --live  # 连接轴端到端验收（含真实 api.anthropic.com）

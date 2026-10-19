@@ -51,8 +51,8 @@ npm test
 预期末尾：
 
 ```text
-ℹ tests 171
-ℹ pass 171
+ℹ tests 237
+ℹ pass 237
 ℹ fail 0
 ℹ skipped 0
 ```
@@ -194,6 +194,34 @@ node tools/check.mjs --base-url https://api.example.com/v1 \
 **建议先用小额 Key 跑 `--depth fingerprint` 确认连通性，再跑 `authenticity`。**
 
 加 `--json` 输出完整报告，便于存档或提交 issue。
+
+---
+
+## 第 8 层：降智诊断（上传日志，纯本地、不联网）
+
+不需要任何 Key，也不需要真实日志。先生成一套可控的合成日志：
+
+```powershell
+npm run logs:gen          # 写到 samples/：5 种格式 × stable / degraded
+npm run accept:degrade    # 命令行验收整条链路（30 项断言）
+```
+
+预期：`降智诊断验收汇总：30/30 通过`。关键对照：
+
+| 场景 | 预期结论 |
+| --- | --- |
+| `stable` | 未见系统性退化（score < 5，无 critical） |
+| `degraded` | 多项指标一致退化（score ≈ 61，critical：截断率飙升 / 模型替换 / thinking 消失） |
+| 只有 5 条记录 | **样本不足，无法判断**（不是「退化 0 分」，也不是「稳定」） |
+
+网页里：打开「降智诊断」tab，把 `samples/` 里的文件拖进去 →
+应看到逐文件识别结果（5 种格式都要认对，包括把 `claude-code.jsonl` 改名成 `.csv`）→
+点「开始分析」→ 报告应包含：`score` 与 `evidenceStrength` **分开**显示、指标表、
+原生 SVG 折线图、findings 分级、以及免责声明；页面必须有「日志不上传」的常驻提示。
+
+用真实日志时先按 [LOG-FORMATS.md](LOG-FORMATS.md) §4 脱敏。
+**注意**：Claude Code 日志没有「请求模型」字段，所以「模型替换」指标会显示数据不足 ——
+要测模型替换请同时上传 API 日志或账单 CSV。
 
 ---
 

@@ -1,0 +1,80 @@
+[
+  {
+    "id": "conv-0001",
+    "title": "排序算法讨论",
+    "create_time": 1767225600.0,
+    "mapping": {
+      "node-user-1": {
+        "id": "node-user-1",
+        "message": {
+          "id": "msg-user-1",
+          "author": { "role": "user" },
+          "create_time": 1767225600.0,
+          "content": { "content_type": "text", "parts": ["请解释归并排序"] }
+        },
+        "parent": null,
+        "children": ["node-assist-1"]
+      },
+      "node-assist-1": {
+        "id": "node-assist-1",
+        "message": {
+          "id": "msg-assist-1",
+          "author": { "role": "assistant" },
+          "create_time": 1767225610.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["归并排序是一种分治算法：把数组分成两半分别排序，再合并，时间复杂度 O(n log n)。"]
+          },
+          "metadata": { "model_slug": "gpt-4o", "finish_details": { "type": "stop" } }
+        },
+        "parent": "node-user-1",
+        "children": ["node-user-2"]
+      },
+      "node-user-2": {
+        "id": "node-user-2",
+        "message": {
+          "id": "msg-user-2",
+          "author": { "role": "user" },
+          "create_time": 1767225700.0,
+          "content": { "content_type": "text", "parts": ["它稳定吗？"] }
+        },
+        "parent": "node-assist-1",
+        "children": ["node-assist-2"]
+      },
+      "node-assist-2": {
+        "id": "node-assist-2",
+        "message": {
+          "id": "msg-assist-2",
+          "author": { "role": "assistant" },
+          "create_time": 1767225710.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["归并排序是稳定排序。"]
+          },
+          "metadata": { "model_slug": "gpt-4o", "finish_details": { "type": "stop" } }
+        },
+        "parent": "node-user-2",
+        "children": []
+      }
+    }
+  },
+  {
+    "id": "conv-0002",
+    "title": "快速排序",
+    "create_time": 1767312000.0,
+    "mapping": {
+      "n1": {
+        "id": "n1",
+        "message": {
+          "id": "m1",
+          "author": { "role": "assistant" },
+          "create_time": 1767312010.0,
+          "content": { "content_type": "text", "parts": ["快速排序平均 O(n log n)。"] },
+          "metadata": { "model_slug": "gpt-4o-mini", "finish_details": { "type": "max_tokens" } }
+        },
+        "parent": null,
+        "children": []
+      }
+    }
+  }
+]

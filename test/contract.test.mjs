@@ -826,3 +826,192 @@ test('[v2] authenticity 报告内的 runError.code 必须是契约枚举值', as
   }
 });
 
+/* ------------------------------------------------------------------ */
+/* v3 契约 §10.2 / §10.3：降智诊断报告形状（契约 14.7 / 任务 10.4）        */
+/* ------------------------------------------------------------------ */
+
+const DEGRADE_INDEX_FILE = path.join(ROOT, 'src', 'core', 'degrade', 'index.js');
+const degrade = await import(pathToFileURL(DEGRADE_INDEX_FILE).href);
+
+const DEGRADE_VERDICTS = ['stable', 'suspicious', 'likely-degraded', 'insufficient'];
+const DEGRADE_SUMMARY = {
+  stable: '未见系统性退化',
+  suspicious: '存在可疑变化',
+  'likely-degraded': '多项指标一致退化',
+  insufficient: '样本不足，无法判断'
+};
+const DEGRADE_METRIC_IDS = [
+  'truncation_rate',
+  'model_substitution',
+  'thinking_presence',
+  'thinking_share',
+  'token_inflation',
+  'output_length',
+  'completion_ratio',
+  'latency_median',
+  'error_rate',
+  'refusal_rate',
+  'repetition_rate',
+  'empty_rate',
+  'cache_hit_rate'
+];
+const DEGRADE_SEVERITIES = ['info', 'warning', 'critical'];
+
+/** 递归断言对象中没有某个字段名（隐私契约 §9.2：raw 必须在序列化前剥离）。 */
+function assertNoFieldDeep(value, fieldName, label) {
+  const seen = new Set();
+  const walk = (node, depth) => {
+    if (depth > 12 || node == null || typeof node !== 'object') return;
+    if (seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, depth + 1);
+      return;
+    }
+    for (const [key, child] of Object.entries(node)) {
+      assert.notEqual(key, fieldName, `${label}: 报告中不得出现字段「${fieldName}」（契约 §9.2）`);
+      walk(child, depth + 1);
+    }
+  };
+  walk(value, 0);
+}
+
+function assertDegradeReportValid(report, label) {
+  assert.ok(report && typeof report === 'object', `${label}: DegradationReport 必须是对象`);
+  assert.equal(report.schema, 1, `${label}: schema 必须为 1`);
+  assert.ok(DEGRADE_VERDICTS.includes(report.verdict), `${label}: 非法 verdict "${report.verdict}"`);
+  assert.equal(typeof report.score, 'number', `${label}: score 必须是数字`);
+  assert.ok(report.score >= 0 && report.score <= 100, `${label}: score 越界 ${report.score}`);
+  assert.equal(typeof report.evidenceStrength, 'number', `${label}: evidenceStrength 必须是数字`);
+  assert.ok(report.evidenceStrength >= 0 && report.evidenceStrength <= 1, `${label}: evidenceStrength 越界`);
+  assert.equal(
+    report.summaryText,
+    DEGRADE_SUMMARY[report.verdict],
+    `${label}: summaryText 必须是契约 §10.3 冻结文案（verdict=${report.verdict}）`
+  );
+
+  const seg = report.segments;
+  assert.ok(seg && typeof seg === 'object', `${label}: segments 必须是对象`);
+  for (const name of ['early', 'recent']) {
+    assert.ok(seg[name] && typeof seg[name] === 'object', `${label}: segments.${name} 必须是对象`);
+    assert.equal(typeof seg[name].count, 'number', `${label}: segments.${name}.count 必须是数字`);
+    assert.ok(seg[name].from === null || typeof seg[name].from === 'number', `${label}: segments.${name}.from 形状非法`);
+    assert.ok(seg[name].to === null || typeof seg[name].to === 'number', `${label}: segments.${name}.to 形状非法`);
+  }
+  assert.ok(seg.splitAt === null || typeof seg.splitAt === 'number', `${label}: segments.splitAt 形状非法`);
+
+  assert.ok(Array.isArray(report.metrics), `${label}: metrics 必须是数组`);
+  assert.deepEqual(
+    report.metrics.map((metric) => metric.id),
+    DEGRADE_METRIC_IDS,
+    `${label}: metrics 必须恰好包含契约 §11 的 13 个指标（顺序冻结）`
+  );
+  for (const metric of report.metrics) {
+    assert.ok(['ok', 'insufficient'].includes(metric.status), `${label}/${metric.id}: 非法 status`);
+    assert.ok(metric.early === null || typeof metric.early === 'number', `${label}/${metric.id}: early 形状非法`);
+    assert.ok(metric.recent === null || typeof metric.recent === 'number', `${label}/${metric.id}: recent 形状非法`);
+    assert.ok(metric.deltaPct === null || typeof metric.deltaPct === 'number', `${label}/${metric.id}: deltaPct 形状非法`);
+    assert.ok(['worse', 'better', 'flat'].includes(metric.direction), `${label}/${metric.id}: 非法 direction`);
+    assert.ok(metric.samples && typeof metric.samples === 'object', `${label}/${metric.id}: samples 必须存在`);
+    assert.ok(Array.isArray(metric.series), `${label}/${metric.id}: series 必须是数组`);
+    assert.ok(metric.series.length <= 500, `${label}/${metric.id}: series 不得超过 500 点`);
+    assert.equal(typeof metric.definition, 'string', `${label}/${metric.id}: definition 必须是字符串`);
+  }
+
+  assert.ok(Array.isArray(report.findings), `${label}: findings 必须是数组`);
+  for (const finding of report.findings) {
+    assert.equal(typeof finding.id, 'string', `${label}: Finding.id 必须是字符串`);
+    assert.ok(DEGRADE_SEVERITIES.includes(finding.severity), `${label}: 非法 Finding.severity "${finding.severity}"`);
+    assert.equal(typeof finding.metric, 'string');
+    assert.equal(typeof finding.title, 'string');
+    assert.equal(typeof finding.detail, 'string');
+    assert.ok('evidence' in finding, `${label}: Finding 必须有 evidence`);
+    assert.equal(typeof finding.suggestion, 'string');
+  }
+
+  assert.ok(Array.isArray(report.criticalIssues), `${label}: criticalIssues 必须是数组`);
+  assert.deepEqual(
+    report.criticalIssues.map((finding) => finding.id),
+    report.findings.filter((finding) => finding.severity === 'critical').map((finding) => finding.id),
+    `${label}: criticalIssues 必须恰好是 findings 中 severity=critical 的子集（契约 10.3）`
+  );
+
+  const coverage = report.coverage;
+  assert.ok(coverage && typeof coverage === 'object', `${label}: coverage 必须是对象`);
+  for (const key of ['records', 'usable', 'spanDays']) {
+    assert.equal(typeof coverage[key], 'number', `${label}: coverage.${key} 必须是数字`);
+    assert.ok(coverage[key] >= 0, `${label}: coverage.${key} 不得为负`);
+  }
+  assert.ok(coverage.bySource && typeof coverage.bySource === 'object');
+  assert.ok(coverage.byModel && typeof coverage.byModel === 'object');
+
+  assert.ok(Array.isArray(report.notes), `${label}: notes 必须是数组`);
+  for (const note of report.notes) assert.equal(typeof note, 'string');
+  assert.equal(typeof report.startedAt, 'number');
+  assert.equal(typeof report.finishedAt, 'number');
+
+  // 隐私红线：不得有 raw / 日志原文 / 文件路径字段（契约 §9.2）。
+  assertNoFieldDeep(report, 'raw', label);
+  assertNoFieldDeep(report, 'promptText', label);
+  assertNoFieldDeep(report, 'completionText', label);
+  assertNoFieldDeep(report, 'fileName', label);
+  assert.doesNotThrow(() => JSON.stringify(report), `${label}: 报告必须可序列化`);
+}
+
+test('[v3] analyzeDegradation 对空输入返回合法 insufficient 报告（契约 10.3）', () => {
+  const report = degrade.analyzeDegradation();
+  assertDegradeReportValid(report, 'v3-empty');
+  assert.equal(report.verdict, 'insufficient', '空输入必须 insufficient');
+  assert.equal(report.score, 0);
+  assert.equal(report.evidenceStrength, 0);
+});
+
+test('[v3] DegradationReport 形状：verdict 枚举 / metrics 数组 / criticalIssues / 无 raw', () => {
+  const SECRET = 'SECRET_CONTRACT_PROMPT_XYZ';
+  const records = Array.from({ length: 120 }, (_, index) => ({
+    index,
+    timestamp: Date.parse('2026-07-01T00:00:00.000Z') + index * 3600e3,
+    provider: 'openai',
+    model: 'gpt-4o',
+    requestModel: 'gpt-4o',
+    sessionId: 'sess-contract',
+    source: 'api-log',
+    kind: 'assistant',
+    promptText: `${SECRET}#${index}`,
+    completionText: `${SECRET} 的回答 #${index}`,
+    promptTokens: 400,
+    completionTokens: 120,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    thinkingTokens: null,
+    thinkingChars: null,
+    hasThinkingSignature: null,
+    finishReason: 'stop',
+    status: 200,
+    errorCode: null,
+    latencyMs: 800,
+    raw: { bodyText: SECRET }
+  }));
+
+  const report = degrade.analyzeDegradation({ records });
+  assertDegradeReportValid(report, 'v3-shape');
+  assert.ok(!JSON.stringify(report).includes(SECRET), '报告序列化后不得包含日志原文（契约 §9.2）');
+  assert.ok(!JSON.stringify(report).includes('raw'), '报告序列化后不得包含 raw 字段');
+});
+
+test('[v3] parseLogFiles 返回契约 10.2 形状且绝不抛异常', () => {
+  assert.doesNotThrow(() => {
+    const result = degrade.parseLogFiles();
+    assert.ok(result && typeof result === 'object');
+    assert.ok(Array.isArray(result.records), 'records 必须是数组');
+    assert.ok(Array.isArray(result.files), 'files 必须是数组');
+    assert.ok(Array.isArray(result.warnings), 'warnings 必须是数组');
+    assert.ok(result.stats && typeof result.stats === 'object', 'stats 必须是对象');
+    assert.equal(typeof result.stats.lines, 'number');
+    assert.equal(typeof result.stats.bytes, 'number');
+    assert.ok(result.stats.timeRange === null || typeof result.stats.timeRange === 'object');
+    assert.ok(Array.isArray(result.stats.models));
+  }, 'parseLogFiles 不得抛异常');
+});
+
+

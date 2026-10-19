@@ -562,3 +562,213 @@ const auth = await runAuthenticity({
    - 上游返回 `insufficient_quota` → `verdict: 'invalid'`，不得显示为低分
 4. `runAuthenticity` 在 transport 全部失败时**不抛异常**，返回 `verdict: 'invalid'`。
 5. key 脱敏：报告中不出现完整 key。
+
+---
+
+# 契约 v3 · 降智诊断（基于使用日志）
+
+> **定位声明（必须写进 UI 与文档）**：这不是 IQ 测试，也不是「能力测量」。
+> 它从**用户自己的使用日志**里提取**可观测的退化信号**（输出变短、token 膨胀、被截断、
+> thinking 消失、模型字段漂移、错误率上升、延迟恶化…），并做**前后期对比**。
+> 结论是「统计上存在/不存在系统性变化的迹象」，**不是**「模型一定变笨了」。
+
+## 9. 隐私红线（最高优先级）
+
+1. **日志绝不出浏览器**：用 File API 在内存中读取与解析，**零网络请求**。
+   禁止上传、禁止发往任何服务器、禁止写入 localStorage（除用户显式勾选的「仅保存汇总」）。
+2. 报告里**不得包含日志原文**。只允许包含：计数、比率、中位数、时间戳、模型名、字段名。
+   `raw` 字段只存在于解析期的内存对象，**序列化报告前必须剥离**。
+3. 页面必须有常驻提示：「日志只在你的浏览器内存中解析，不会上传到任何地方」。
+4. 解析完成后，UI 必须提供一键清空内存中日志内容的入口。
+
+## 10. 数据形状
+
+### 10.1 LogRecord（解析后的规范化记录）
+
+```js
+/** @typedef {Object} LogRecord */
+{
+  index: number,
+  timestamp: number | null,        // ms epoch；缺失为 null
+  provider: 'anthropic' | 'openai' | 'google' | 'unknown',
+  model: string | null,            // 响应里实际返回的模型
+  requestModel: string | null,     // 请求时指定的模型
+  sessionId: string | null,
+  source: 'claude-code' | 'codex-rollout' | 'api-log' | 'usage-csv' | 'chatgpt-export' | 'generic',
+  kind: 'assistant' | 'usage' | 'user' | 'system',
+  promptText: string,              // 缺失为 ''
+  completionText: string,          // 缺失为 ''
+  promptTokens: number | null,
+  completionTokens: number | null,
+  cacheReadTokens: number | null,
+  cacheWriteTokens: number | null,
+  thinkingTokens: number | null,
+  thinkingChars: number | null,
+  hasThinkingSignature: boolean | null,
+  finishReason: string | null,     // 'stop' | 'end_turn' | 'length' | 'max_tokens' | …
+  status: number | null,           // HTTP 状态；无则 null
+  errorCode: string | null,
+  latencyMs: number | null,
+  raw: object                      // ⚠️ 仅内存；进报告前必须删除
+}
+```
+
+### 10.2 解析入口（`src/core/degrade/index.js`）
+
+```js
+export async function parseLogFiles({ files, limits }) -> ParseResult
+// files: Array<{ name: string, text: string }>   // 浏览器端由 FileReader 读出文本后传入
+// limits: { maxFiles?: 20, maxBytesPerFile?: 64*1024*1024, maxRecords?: 200000 }
+// 返回：
+{
+  records: LogRecord[],
+  files: [{ name, format, confidence, total, parsed, skipped, error }],
+  warnings: string[],       // 如「跳过 12 行无法解析的 JSON」
+  stats: { lines, bytes, timeRange: { from, to } | null, models: string[] }
+}
+```
+
+**绝不抛异常**：单文件解析失败记入 `files[].error` 并继续处理其它文件。
+
+### 10.3 分析入口
+
+```js
+export function analyzeDegradation({ records, options }) -> DegradationReport
+// options: { minRecords?: 20, minSpanMs?: 0, segment?: 'auto' | 'early-recent' }
+//   minSpanMs 默认 0：不按时间跨度卡结论（否则「单次会话」永远无法出结论）；
+//   但跨度 < 6 小时时必须在 notes 里提示「时间跨度较短，趋势判断置信度低」。
+```
+
+```js
+{
+  schema: 1,
+  verdict: 'stable' | 'suspicious' | 'likely-degraded' | 'insufficient',
+  score: 0..100,                 // 退化倾向（越高越可疑）
+  evidenceStrength: 0..1,        // 证据充分度（样本量 + 指标可用性），与 score 分离
+  summaryText: '未见系统性退化' | '存在可疑变化' | '多项指标一致退化' | '样本不足，无法判断',
+  segments: {
+    early: { count, from, to },
+    recent: { count, from, to },
+    splitAt: number | null       // 探测到的变化点时间戳
+  },
+  metrics: [MetricResult],
+  findings: [Finding],
+  criticalIssues: [Finding],     // findings 中 severity === 'critical' 的子集
+  coverage: { records, usable, bySource, byModel, spanDays },
+  notes: string[],
+  startedAt, finishedAt
+}
+```
+
+### 10.4 MetricResult
+
+```js
+{
+  id: 'truncation_rate',
+  label: '截断率（finish_reason=length）',
+  unit: '%' | 'ms' | 'tok' | 'ratio',
+  status: 'ok' | 'insufficient',      // insufficient 不参与评分，也不显示为 0
+  early: number | null,
+  recent: number | null,
+  deltaPct: number | null,            // (recent - early) / |early|
+  direction: 'worse' | 'better' | 'flat',
+  samples: { early: number, recent: number },
+  series: [{ t: number|null, v: number }],   // 供折线图；最多 500 点（降采样）
+  definition: string                  // 一句话口径说明，UI 原样展示
+}
+```
+
+### 10.5 Finding
+
+```js
+{
+  id: 'truncation_spike',
+  severity: 'info' | 'warning' | 'critical',
+  metric: 'truncation_rate',
+  title: '截断率显著上升',
+  detail: '近期 24% 的响应因达到长度上限被截断，早期仅 1.2%。',
+  evidence: { early: 0.012, recent: 0.24, deltaPct: 19 },
+  suggestion: '检查是否被中转站改小了 max_tokens，或模型被换成输出上限更低的版本。'
+}
+```
+
+## 11. 指标清单（冻结 id）
+
+| id | 含义 | 「变差」的方向 | 权重 | critical |
+| --- | --- | --- | --- | --- |
+| `truncation_rate` | `finish_reason ∈ {length,max_tokens}` 占比 | 上升 | 1.4 | 是（>15% 且较早期翻 5 倍） |
+| `model_substitution` | 响应 `model` 与请求 `requestModel` 不一致的占比 | 上升 | 1.5 | 是（>10%） |
+| `thinking_presence` | 含 thinking 块/思考 token 的记录占比 | 下降 | 1.3 | 是（早期 >50% 且近期 ≈0） |
+| `thinking_share` | thinking tokens / 总输出 tokens | 下降 | 1.1 | 否 |
+| `token_inflation` | 字符数 / 输出 token（越低越像 token 被多算） | 下降 | 1.2 | 否（降幅 >40% 记 warning） |
+| `output_length` | 输出 token 中位数 | 下降 | 1.0 | 否 |
+| `completion_ratio` | 输出 token / 输入 token | 下降 | 0.7 | 否 |
+| `latency_median` | 端到端延迟中位数 | 上升 | 0.8 | 否 |
+| `error_rate` | 非成功响应占比 | 上升 | 1.2 | 否 |
+| `refusal_rate` | 拒答型回答占比 | 上升 | 0.6 | 否 |
+| `repetition_rate` | 重复 n-gram 占比 | 上升 | 0.7 | 否 |
+| `empty_rate` | 空回答占比 | 上升 | 0.9 | 否 |
+| `cache_hit_rate` | 缓存命中占比 | 下降 | 0.5 | 否 |
+
+> 指标只有 `status: 'ok'` 且早期/近期各有 ≥ 5 个样本时才参与评分。
+> 全部指标都不可用 → `verdict: 'insufficient'`。
+
+## 12. 判定与评分（冻结）
+
+```js
+export function scoreDegradation(metrics, findings) -> {
+  score, evidenceStrength, verdict, summaryText
+}
+```
+
+- 单指标归一化恶化分：`badness = clamp(deltaPct / 0.5, 0, 1)`（变化 50% 记满分），
+  仅取「变差方向」的变化；反向变化记 0 但保留在报告中展示。
+- `score = 100 × Σ(badness_i × weight_i) / Σ(weight_i)`，
+  **分母只统计可用指标**（`status: 'ok'`）—— 与 v2 的 `skip` 语义一致，不可用不进分母。
+- `evidenceStrength = saturate(可用指标数 / 4) × saturate(usable / 50)`，
+  饱和函数 `saturate(x) = x / (x + 1)`，`usable` = 参与分析的记录数（`kind` 为 assistant/usage）。
+
+> **为什么是 /4 与 /50（v3.1 修正）**：早期写成 `saturate(可用指标/8) × saturate(总记录/200)`，
+> 由于 `saturate(13/8)` 上限只有 0.619，要过 0.35 闸门需要 ~261 条记录 ——
+> 这会让**单次会话**（典型 40–150 条可用记录）永远判成「样本不足」，属于设计缺陷。
+> 新参数下：100 条可用记录 + 5 个可用指标 → `0.556 × 0.667 = 0.371`，可以出结论；
+> 30 条 + 13 指标 → `0.287`，仍判 `insufficient`（合理）。
+- 判定：
+
+| 条件 | verdict |
+| --- | --- |
+| 可用指标数 < 3 或 可用记录 < `minRecords` | `insufficient` |
+| 存在 criticalIssue | `likely-degraded`（无论分数） |
+| `evidenceStrength < 0.35` | `insufficient` |
+| `score >= 60` | `likely-degraded` |
+| `score >= 30` | `suspicious` |
+| 其它 | `stable` |
+
+## 13. UI 契约（v3）
+
+新增独立的「降智诊断」区块（与连接轴、真伪轴并列，**不混入** `detect()` 的报告）：
+
+1. 拖拽 / 选择文件（支持多个 `.jsonl` / `.json` / `.csv` / `.log`）；显示每个文件的
+   自动识别格式、解析条数、跳过行数与错误。
+2. 常驻隐私提示：「日志只在你的浏览器内存中解析，不会上传」+「分析完成后清空」按钮。
+3. 分析结果：verdict 徽章、`score`、`evidenceStrength`、前后期时间范围与变化点、
+   指标表格（early / recent / delta / 方向 / 样本数）、指标折线图（SVG，降采样到 ≤500 点）、
+   findings 列表（critical 红 / warning 黄 / info 灰，含 suggestion）、JSON 导出。
+4. **必须展示的免责声明**：日志只能反映「可观测行为的变化」，无法证明模型智力下降；
+   输出长度下降也可能是任务分布变化、系统提示词变化或缓存策略变化。
+5. 样本不足时显示 `insufficient` 与「还需要多少条 / 多长时间跨度」的具体建议。
+
+## 14. 测试契约（v3）
+
+必须覆盖（全部离线，用内置合成日志）：
+
+1. **五个**解析器各一组 fixture：Claude Code JSONL、**Codex rollout JSONL**、通用 API 日志 JSONL、
+   用量 CSV、ChatGPT 导出 JSON。
+2. 格式**自动识别**：把同一份日志分别伪装成不同扩展名，仍应识别为正确格式。
+3. **退化场景**：构造「早期正常、近期截断率 24% + 输出变短 + thinking 消失」的合成日志 →
+   `verdict === 'likely-degraded'`，且 findings 含 `truncation_spike` / `thinking_collapse`。
+4. **稳定场景**：构造指标前后无变化的日志 → `verdict === 'stable'`、无 critical。
+5. **样本不足**：5 条记录 → `insufficient`，且 `score` 不得被当成「退化 0 分」展示。
+6. **隐私**：`JSON.stringify(report)` 中不得出现日志原文片段（用唯一标记串搜索）与完整文件路径。
+7. 单文件解析失败不影响其它文件；`parseLogFiles` 与 `analyzeDegradation` **绝不抛异常**。
+8. `status: 'insufficient'` 的指标**不进分母**（与 v2 的 `skip` 语义一致）。

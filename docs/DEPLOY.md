@@ -48,7 +48,7 @@ git push -u origin main
 
 仓库 → **Settings → Pages → Build and deployment → Source** 选 **GitHub Actions**。
 
-推送到 `main` 后，`.github/workflows/pages.yml` 会先跑 `npm test`（177 项），
+推送到 `main` 后，`.github/workflows/pages.yml` 会先跑 `npm test`（237 项），
 通过后自动部署；失败则**不会**上线坏版本 —— 这是免费的发布门禁。
 
 ### 1.3 验证线上版本

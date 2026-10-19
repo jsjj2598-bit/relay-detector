@@ -7,6 +7,9 @@
  *   - renderReport() / renderError()（src/ui/render.js）
  * 连接引擎与界面，不 import 任何 rules/** 或 providers/**。
  *
+ * 契约 v3 的「降智诊断」是**独立区块**（见 src/ui/degrade.js），与本文件的
+ * detect()/authenticity 流程互不依赖：即使 degrade 模块缺失，本文件功能也不受影响。
+ *
  * 防御性设计：
  *   engine.js / src/core/auth/** 由其他队友并行实现，这里全部使用动态 import + try/catch；
  *   模块缺失时页面完整可用，只在用户选择需要 Key 的档位时提示「真伪引擎未就绪」，绝不白屏。
@@ -19,6 +22,7 @@
 import { VERSION, PROVIDER_LABELS, PROVIDER_DEFAULT_BASE_URL } from '../core/constants.js';
 import { renderEmpty, renderLoading, renderError, renderReport } from './render.js';
 import { verdictBadge } from './components.js';
+import { initDegrade } from './degrade.js';
 import {
   DEPTH_FINGERPRINT,
   depthOption,
@@ -1183,6 +1187,7 @@ function init() {
   });
 
   initAuthEngine(false);
+  initDegrade();
   updateStartState();
 }
 

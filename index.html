@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>中转站检测器 · Relay Detector</title>
-  <meta name="description" content="判断一个 API 基址是官方直连还是第三方中转站，并独立验证第三方上游给的是不是真模型：两根正交的轴、带证据链的评分报告。纯静态、可部署到 GitHub Pages，费用预估与确认后才发付费请求，并显式呈现不确定性。" />
+  <meta name="description" content="判断一个 API 基址是官方直连还是第三方中转站、第三方上游给的是不是真模型，并用你自己的使用日志做降智诊断：三块互相独立的功能、带证据链的报告。纯静态、可部署到 GitHub Pages；日志只在浏览器内存解析、零上传；费用预估与确认后才发付费请求，并显式呈现不确定性。" />
   <meta name="color-scheme" content="light dark" />
   <meta name="theme-color" content="#0b1120" />
 
@@ -15,7 +15,7 @@
   <meta property="og:site_name" content="中转站检测器 · Relay Detector" />
   <meta property="og:locale" content="zh_CN" />
   <meta property="og:title" content="中转站检测器：这接口是官方直连、第三方中转，还是上游被掉包？" />
-  <meta property="og:description" content="两根正交的轴：轴 1 判断连接方式，轴 2 判断上游是不是真模型（Claude thinking 签名验真 / 跨厂商字段泄漏检测）。纯前端，API Key 不经过任何服务器。" />
+  <meta property="og:description" content="三块互相独立的功能：轴 1 判断连接方式，轴 2 判断上游是不是真模型（Claude thinking 签名验真 / 跨厂商字段泄漏检测），以及基于你自己使用日志的降智诊断（纯本地解析、零上传）。" />
   <meta property="og:image" content="./assets/og-cover.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="中转站检测器 · Relay Detector" />
@@ -31,7 +31,7 @@
   <header class="site-header no-print">
     <div class="brand">
       <span class="brand-title">🔍 中转站检测器</span>
-      <span class="brand-sub">Relay Detector · 多层指纹评分</span>
+      <span class="brand-sub">Relay Detector · 连接 / 真伪 / 降智诊断</span>
     </div>
     <div class="header-actions">
       <a class="btn btn-ghost btn-sm" href="#help-panel">使用说明</a>
@@ -51,9 +51,23 @@
         <li>默认「指纹（免费）」档位不发送任何可能计费的请求；「真伪 / 完整」档位需要 API Key，并在<strong>发请求前展示请求数与 token 预估、要求你显式勾选确认</strong>。</li>
         <li>「检测无效」与「未达标」严格区分：Key 失效 / 余额不足 / 模型不存在只显示灰色的「检测无效」，绝不显示误导性的低分。</li>
         <li>不硬编码中转站黑名单，只做特征判定；「Cloudflare / 公共 CA / 非官方域名」一律视为中性证据。</li>
+        <li><strong>新增「降智诊断」</strong>：把自己的 Claude Code / API / 用量 CSV / ChatGPT 导出日志拖进浏览器，本地做前后期对比（零网络请求，日志不离开本机）。</li>
         <li>纯静态页面，无构建步骤，可直接托管在 GitHub Pages；也支持本地代理模式读取真实响应头与 TLS 证书。</li>
       </ul>
     </section>
+
+    <!-- ============================ 视图切换 ============================ -->
+    <nav id="view-tabs" class="view-tabs no-print" role="tablist" aria-label="功能切换">
+      <button id="tab-detect" class="view-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="detect-view" data-view-tab="detect">
+        🔍 连接方式 &amp; 上游真伪
+      </button>
+      <button id="tab-degrade" class="view-tab" type="button" role="tab" aria-selected="false" aria-controls="degrade-view" data-view-tab="degrade" tabindex="-1">
+        📉 降智诊断（使用日志）
+      </button>
+    </nav>
+
+    <!-- ============================ 视图 1：连接方式 & 上游真伪 ============================ -->
+    <div id="detect-view" class="view" role="tabpanel" aria-labelledby="tab-detect">
 
     <!-- ============================ 检测表单 ============================ -->
     <section id="form-panel" class="panel no-print" aria-labelledby="form-title">
@@ -344,6 +358,113 @@
         </article>
       </div>
     </section>
+    </div>
+
+    <!-- ============================ 视图 2：降智诊断 ============================ -->
+    <div id="degrade-view" class="view hidden" role="tabpanel" aria-labelledby="tab-degrade" tabindex="0">
+      <section id="degrade-panel" class="panel no-print" aria-labelledby="degrade-title">
+        <div class="panel-head">
+          <h2 id="degrade-title" class="panel-title">降智诊断：从你自己的使用日志里找「可观测的退化信号」</h2>
+          <p class="panel-sub">前后期对比 · 纯本地解析 · 零网络请求</p>
+        </div>
+
+        <div class="degrade-privacy" role="note">
+          🔒 <strong>日志只在你的浏览器内存中解析，不会上传到任何地方。</strong>
+          本工具不会把日志写入 localStorage；点击「清空日志」会丢弃内存中的文件文本、解析结果与诊断报告。
+        </div>
+
+        <div class="degrade-status-row">
+          <span id="degrade-status" class="chip chip-plain" role="status">正在加载降智诊断引擎…</span>
+          <span class="hint">支持 .jsonl / .json / .csv / .tsv / .log，也支持无扩展名文件；格式由内容自动识别，不依赖扩展名。</span>
+        </div>
+
+        <div id="degrade-dropzone" class="dropzone" role="button" tabindex="0" aria-label="拖拽日志文件到这里，或点击选择文件">
+          <div class="dropzone-icon" aria-hidden="true">📂</div>
+          <p class="dropzone-title">把日志文件拖到这里，或点击选择文件</p>
+          <p class="dropzone-hint">可多选；单文件上限 64 MB、最多 20 个文件。文件只在本机内存中读取。</p>
+        </div>
+        <input
+          id="degrade-file-input"
+          class="sr-only"
+          type="file"
+          multiple
+          accept=".jsonl,.json,.csv,.tsv,.log,text/plain,application/json,text/csv,text/tab-separated-values,application/x-ndjson"
+        />
+
+        <div id="degrade-file-list" class="degrade-file-list" aria-live="polite"></div>
+        <div id="degrade-parse-summary" class="degrade-parse-summary" aria-live="polite"></div>
+
+        <div class="actions">
+          <button id="degrade-analyze-btn" class="btn btn-primary" type="button" disabled>开始分析</button>
+          <button id="degrade-clear-btn" class="btn btn-ghost" type="button">清空日志</button>
+        </div>
+        <p id="degrade-reason" class="start-reason tone-warn" role="note"></p>
+        <p class="hint">
+          分析只做统计对比：<strong>不是 IQ 测试，也不测量模型能力</strong>；
+          日志只能反映可观测行为的变化，无法证明模型智力下降。
+        </p>
+      </section>
+
+      <section id="degrade-result-panel" class="panel" aria-labelledby="degrade-result-title">
+        <div class="panel-head">
+          <h2 id="degrade-result-title" class="panel-title">降智诊断报告</h2>
+          <p class="panel-sub">score（退化倾向）与 evidenceStrength（证据充分度）分开展示，不合并成一个数</p>
+        </div>
+        <div id="degrade-result" aria-live="polite" aria-busy="false"></div>
+      </section>
+
+      <section id="degrade-help-panel" class="panel no-print" aria-labelledby="degrade-help-title">
+        <div class="panel-head">
+          <h2 id="degrade-help-title" class="panel-title">降智诊断：怎么用 / 支持格式 / 局限</h2>
+        </div>
+        <div class="help-grid">
+          <article class="help-card">
+            <h3>① 怎么用</h3>
+            <ol class="step-list">
+              <li>准备好自己的使用日志：Claude Code 的 <code>~/.claude/projects/**/*.jsonl</code>、API 请求日志、用量 / 账单 CSV，或 ChatGPT 导出的 <code>conversations.json</code>。</li>
+              <li>把文件拖进上方虚线框，或点击选择文件（可多选、可混合格式）。</li>
+              <li>查看每个文件的自动识别格式、解析条数、跳过行数与错误；确认总计记录数、时间范围与模型。</li>
+              <li>点击「开始分析」，阅读结论徽章、<code>score</code>、<code>evidenceStrength</code>、前后期时间范围与变化点、指标表格与折线图、findings 建议。</li>
+              <li>用「复制诊断摘要」或「下载 degrade-report.json」保存结论。</li>
+            </ol>
+          </article>
+
+          <article class="help-card">
+            <h3>② 支持哪些日志</h3>
+            <ul class="step-list">
+              <li><strong>Claude Code 会话 JSONL</strong>：每行一个对象，含 <code>message.usage</code>、<code>message.content[]</code>（thinking / text）、<code>timestamp</code>。</li>
+              <li><strong>通用 API 日志 JSONL</strong>：兼容 OpenAI 的 <code>usage.prompt_tokens</code> / Anthropic 的 <code>usage.input_tokens</code>，也支持 <code>{request,response}</code> 包装。</li>
+              <li><strong>用量 / 账单 CSV</strong>：英文或中文表头，支持 BOM、CRLF、逗号或制表符分隔。</li>
+              <li><strong>ChatGPT 导出 conversations.json</strong>：按 <code>mapping</code> 节点树读取 assistant 消息与 <code>metadata.model_slug</code>。</li>
+              <li><strong>Codex CLI 会话 JSONL（rollout）</strong>：从 <code>token_count</code> 事件读取输入 / 输出 / 推理 token 与缓存命中，从 <code>response_item</code> 读取回答文本。</li>
+              <li>格式按内容自动识别：把 JSONL 改名成 .csv / .log / 无扩展名，仍然能识别。</li>
+            </ul>
+          </article>
+
+          <article class="help-card">
+            <h3>③ 指标与判定怎么读</h3>
+            <ul class="step-list">
+              <li><strong>13 个指标</strong>：截断率、模型替换、thinking 占比、token 膨胀、输出长度、错误率、延迟、拒答率等；每个指标都能在表格与折线图里看到前后期取值。</li>
+              <li><strong>样本不足（insufficient）不计分</strong>：没有足够样本的指标不进入加权分母，也不会被当成 0 分。</li>
+              <li><strong>critical 一票判定</strong>：如截断率飙升、模型被替换、thinking 消失，任一 critical 直接判为「多项指标一致退化」。</li>
+              <li><strong>score 与 evidenceStrength 分开</strong>：前者表示退化倾向（越高越可疑），后者表示证据是否充分；两者独立，不合并成一个数。</li>
+              <li><strong>变化点</strong>：程序按前后中位数差异最大的位置自动切分早期 / 近期；切分是统计推断，不是精确时间。</li>
+            </ul>
+          </article>
+
+          <article class="help-card">
+            <h3>④ 隐私与局限</h3>
+            <ul class="step-list">
+              <li><strong>零网络请求</strong>：日志只在浏览器内存中读取与解析，不上传、不发往任何服务器、不写 localStorage。</li>
+              <li>报告只包含计数、比率、中位数、时间戳、模型名与字段名，<strong>不包含日志原文与文件名</strong>。</li>
+              <li>「清空日志」会丢弃内存中的文件文本、解析结果与报告；刷新页面同样会清空。</li>
+              <li><strong>这不是 IQ 测试，也不是能力测量</strong>：日志只能反映可观测行为的变化，无法证明模型智力下降；输出变短也可能是任务分布、系统提示词或缓存策略变化。</li>
+              <li>结论是统计迹象，不是确定性结论；请结合使用场景、账单与官方公告综合判断。</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+    </div>
   </main>
 
   <footer class="site-footer">
@@ -352,10 +473,11 @@
         <strong>免责声明：</strong>本工具基于可观测特征做概率性判断，不构成任何确定性结论、法律意见或安全保证；
         特征可能被目标伪造、隐藏或受网络环境干扰。请勿仅凭本报告对任何服务做出付费、投诉或封禁决策。
         所有探测默认只读且不计费；使用付费探测、localStorage 保存密钥等行为由使用者自行承担风险。
+        降智诊断仅做日志的统计对比，不能证明模型能力变化，也不构成绩效或采购依据。
       </p>
       <p class="footer-meta">
         relay-detector · 版本 <span id="app-version">—</span> · 纯静态 ESM + 原生 CSS，可直接部署到 GitHub Pages ·
-        接口契约 FROZEN v2（连接方式轴 + 上游真伪轴）
+        接口契约 FROZEN v3（连接方式轴 + 上游真伪轴 + 降智诊断）
       </p>
     </div>
   </footer>

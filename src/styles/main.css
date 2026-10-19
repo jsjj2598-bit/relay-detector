@@ -1860,6 +1860,758 @@ details[open] > summary::before {
 .auth-mini-badge.tone-danger  { color: var(--danger);  background: var(--danger-soft);  border-color: var(--danger-border); }
 .auth-mini-badge.tone-info    { color: var(--info);    background: var(--info-soft);    border-color: var(--info-border); }
 
+/* ==========================================================================
+ * 契约 v3：降智诊断（tab 切换 / 上传 / 解析反馈 / 报告 / 原生 SVG 图表）
+ * ========================================================================== */
+
+/* —— 顶部视图切换 —— */
+
+.view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.35rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+
+.view-tab {
+  flex: 1 1 auto;
+  padding: 0.6rem 0.9rem;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  text-align: center;
+}
+
+.view-tab:hover {
+  color: var(--text);
+  background: var(--bg-soft);
+}
+
+.view-tab.is-active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.view-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+/* —— 降智诊断：隐私提示 / 状态 / 拖拽区 —— */
+
+.degrade-privacy {
+  margin-bottom: 0.8rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--info-border);
+  border-left: 4px solid var(--info);
+  border-radius: var(--radius);
+  background: var(--info-soft);
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.degrade-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+  align-items: center;
+  margin-bottom: 0.7rem;
+}
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: clamp(1.1rem, 4vw, 2rem) 1rem;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-inset);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dropzone:hover,
+.dropzone:focus-visible,
+.dropzone.is-dragover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.dropzone.is-dragover {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.dropzone-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.dropzone-title {
+  margin: 0.2rem 0 0;
+  font-weight: 700;
+  font-size: 1.02rem;
+}
+
+.dropzone-hint {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.84rem;
+  max-width: 52ch;
+}
+
+/* —— 逐文件解析反馈 —— */
+
+.degrade-file-list:empty {
+  display: none;
+}
+
+.degrade-file-items {
+  list-style: none;
+  margin: 0.7rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.degrade-file {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--success);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+}
+
+.degrade-file.is-error {
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.degrade-file-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.7rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.degrade-file-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.degrade-file-meta-text {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.degrade-file-meta {
+  margin-top: 0.2rem;
+}
+
+.degrade-file-error {
+  margin: 0.3rem 0 0;
+  color: var(--danger);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.degrade-parse-summary {
+  margin-top: 0.6rem;
+}
+
+.degrade-parse-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.degrade-warnings {
+  margin-top: 0.2rem;
+}
+
+/* —— 降智诊断报告骨架 —— */
+
+.degrade-report {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.degrade-verdict-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.degrade-verdict-main {
+  flex: 1 1 20rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.degrade-verdict-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  align-self: flex-start;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--neutral-border);
+  border-radius: var(--radius);
+  background: var(--neutral-soft);
+  color: var(--neutral);
+  font-weight: 700;
+  font-size: clamp(1rem, 3.2vw, 1.3rem);
+  max-width: 100%;
+}
+
+.degrade-verdict-badge.tone-success { color: var(--success); background: var(--success-soft); border-color: var(--success-border); }
+.degrade-verdict-badge.tone-warn    { color: var(--warn);    background: var(--warn-soft);    border-color: var(--warn-border); }
+.degrade-verdict-badge.tone-danger  { color: var(--danger);  background: var(--danger-soft);  border-color: var(--danger-border); }
+.degrade-verdict-badge.tone-neutral { color: var(--neutral); background: var(--neutral-soft); border-color: var(--neutral-border); }
+
+.degrade-verdict-dot {
+  width: 0.62em;
+  height: 0.62em;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.degrade-verdict-text {
+  overflow-wrap: anywhere;
+}
+
+.degrade-summary-text {
+  margin: 0;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.degrade-summary-note {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  max-width: 58ch;
+}
+
+.degrade-meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-content: flex-start;
+}
+
+/* —— 报告横幅：critical 红 / 样本不足灰 —— */
+
+.degrade-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.8rem 0.95rem;
+  border-radius: var(--radius);
+}
+
+.degrade-banner-critical {
+  border: 1px solid var(--danger-border);
+  border-left: 5px solid var(--danger);
+  background: var(--danger-soft);
+}
+
+.degrade-banner-insufficient {
+  border: 1px solid var(--neutral-border);
+  border-left: 5px solid var(--neutral);
+  background: var(--neutral-soft);
+}
+
+.degrade-banner-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.degrade-banner-critical .degrade-banner-title { color: var(--danger); }
+
+.degrade-banner-text {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.degrade-banner-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--text-dim);
+  font-size: 0.86rem;
+}
+
+.degrade-banner-list li + li {
+  margin-top: 0.25rem;
+}
+
+.degrade-banner-note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.degrade-issue-detail {
+  margin: 0.2rem 0 0;
+  font-size: 0.86rem;
+  font-weight: 400;
+}
+
+.degrade-issue-suggestion {
+  margin: 0.2rem 0 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
+/* —— 摘要：评分环 / 证据充分度 / 数字卡 —— */
+
+.degrade-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.degrade-score-wrap {
+  flex: 0 0 auto;
+  margin-inline: auto;
+}
+
+.degrade-summary-side {
+  flex: 1 1 22rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.degrade-score-inapplicable {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 152px;
+  min-height: 152px;
+  padding: 0.9rem;
+  border: 2px dashed var(--neutral-border);
+  border-radius: var(--radius-lg);
+  background: var(--neutral-soft);
+  text-align: center;
+}
+
+.degrade-score-na-value {
+  font-size: 2.4rem;
+  font-weight: 700;
+  color: var(--neutral);
+  line-height: 1;
+}
+
+.degrade-score-na-label {
+  margin: 0.5rem 0 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  max-width: 16ch;
+}
+
+.degrade-score-note {
+  margin: 0;
+}
+
+/* —— 前后期对比 —— */
+
+.degrade-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.segment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  gap: 0.6rem;
+}
+
+.segment-card {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+
+.segment-split {
+  border-left-color: var(--warn);
+}
+
+.segment-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.92rem;
+}
+
+.segment-count {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.segment-range {
+  margin: 0.15rem 0 0;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.segment-hint {
+  margin: 0.25rem 0 0;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+/* —— 指标表格 —— */
+
+.metric-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.metric-table th,
+.metric-table td {
+  padding: 0.5rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.metric-table thead th {
+  background: var(--bg-soft);
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.metric-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.metric-label-cell {
+  min-width: 15rem;
+  max-width: 24rem;
+}
+
+.metric-label {
+  font-weight: 600;
+}
+
+.metric-id {
+  color: var(--text-faint);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
+.metric-definition {
+  margin-top: 0.15rem;
+  color: var(--text-faint);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.metric-num {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-delta {
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-delta.tone-danger  { color: var(--danger); }
+.metric-delta.tone-success { color: var(--success); }
+.metric-delta.tone-neutral { color: var(--text-dim); }
+
+.metric-row.status-insufficient {
+  background: var(--neutral-soft);
+}
+
+.metric-row.status-insufficient .metric-label {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+/* —— 原生 SVG 折线图 —— */
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 0.7rem;
+}
+
+.chart-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+  min-width: 0;
+}
+
+.chart-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.chart-title {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.chart-box {
+  min-height: 70px;
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart-grid-line {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-axis-text {
+  fill: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.chart-line {
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-line-early {
+  stroke: var(--accent);
+}
+
+.chart-line-recent {
+  stroke: var(--danger);
+}
+
+.chart-point {
+  stroke: none;
+}
+
+.chart-point-early {
+  fill: var(--accent);
+}
+
+.chart-point-recent {
+  fill: var(--danger);
+}
+
+.chart-split-line {
+  stroke: var(--warn);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 3;
+}
+
+.chart-empty {
+  margin: 0;
+  padding: 0.6rem 0.2rem;
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.8rem;
+  align-items: center;
+  color: var(--text-dim);
+  font-size: 0.76rem;
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.chart-swatch {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.22rem;
+  border-radius: 2px;
+}
+
+.chart-swatch-early { background: var(--accent); }
+.chart-swatch-recent { background: var(--danger); }
+.chart-legend-split { color: var(--text-faint); }
+
+/* —— findings：critical 红 / warning 黄 / info 灰 —— */
+
+.finding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.finding-card {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--neutral-border);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+
+.finding-card.severity-critical {
+  border-color: var(--danger-border);
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.finding-card.severity-warning {
+  border-color: var(--warn-border);
+  border-left-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.finding-card.severity-info {
+  border-color: var(--neutral-border);
+  border-left-color: var(--neutral);
+  background: var(--neutral-soft);
+}
+
+.finding-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.finding-title {
+  margin: 0;
+  font-size: 0.94rem;
+}
+
+.finding-detail {
+  margin: 0.35rem 0 0;
+  font-size: 0.88rem;
+}
+
+.finding-suggestion {
+  margin: 0.3rem 0 0;
+  color: var(--text-dim);
+  font-size: 0.84rem;
+}
+
+/* —— 覆盖率 / 隐私 —— */
+
+.coverage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 0.7rem;
+}
+
+.coverage-card {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.coverage-title {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.breakdown-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+/* —— 免责声明 —— */
+
+.degrade-disclaimer {
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--warn-border);
+  border-left: 4px solid var(--warn);
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+}
+
+.degrade-disclaimer-title {
+  margin: 0 0 0.35rem;
+  color: var(--warn);
+  font-size: 0.98rem;
+}
+
+.degrade-disclaimer-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--text-dim);
+  font-size: 0.86rem;
+}
+
+.degrade-disclaimer-list li + li {
+  margin-top: 0.25rem;
+}
+
 /* ------------------------------------------------------------------------ *
  * 响应式：手机宽度
  * ------------------------------------------------------------------------ */
@@ -1913,6 +2665,37 @@ details[open] > summary::before {
   }
 
   .detector-reason-cell {
+    max-width: 18rem;
+  }
+
+  .view-tabs {
+    flex-direction: column;
+  }
+
+  .view-tab {
+    width: 100%;
+  }
+
+  .degrade-verdict-head,
+  .degrade-summary {
+    flex-direction: column;
+  }
+
+  .degrade-summary-side {
+    width: 100%;
+  }
+
+  .segment-grid,
+  .chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .metric-table {
+    min-width: 620px;
+  }
+
+  .metric-label-cell {
+    min-width: 12rem;
     max-width: 18rem;
   }
 
@@ -2000,6 +2783,26 @@ details[open] > summary::before {
   .auth-warnings,
   .cost-box {
     background: #fff;
+  }
+
+  .degrade-banner,
+  .segment-card,
+  .finding-card,
+  .chart-card,
+  .coverage-card,
+  .degrade-disclaimer {
+    break-inside: avoid;
+    box-shadow: none;
+    background: #fff;
+  }
+
+  .chart-svg {
+    max-height: 260px;
+  }
+
+  .metric-definition {
+    display: block;
+    overflow: visible;
   }
 
   .code-pre {

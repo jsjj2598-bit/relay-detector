@@ -1,11 +1,11 @@
 {
   "name": "relay-detector",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
-  "description": "API 中转站识别器 —— 判断一个 OpenAI 兼容 / Claude / Gemini 接口是官方直连还是第三方中转，并检测上游是不是真模型（两轴正交报告）。",
+  "description": "API 中转站识别器 —— 判断接口是官方直连还是第三方中转、检测上游是不是真模型，并能从使用日志诊断能力退化信号（三条正交轴）。",
   "type": "module",
   "license": "MIT",
-  "keywords": ["openai", "anthropic", "gemini", "api-relay", "thinking-signature", "one-api", "new-api", "detector"],
+  "keywords": ["openai", "anthropic", "gemini", "api-relay", "thinking-signature", "degradation", "one-api", "new-api", "detector"],
   "engines": {
     "node": ">=21"
   },
@@ -15,9 +15,11 @@
     "desktop": "node desktop/launch.mjs",
     "desktop:electron": "npm --prefix desktop start",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "verify": "npm test && node tools/acceptance-auth.mjs && node tools/check.mjs --demo kiro",
+    "verify": "npm test && node tools/acceptance-degrade.mjs && node tools/acceptance-auth.mjs && node tools/check.mjs --demo kiro",
     "demo": "node tools/check.mjs --demo genuine",
     "check": "node tools/check.mjs",
+    "logs:gen": "node tools/gen-sample-logs.mjs",
+    "accept:degrade": "node tools/acceptance-degrade.mjs",
     "fingerprint": "node tools/fingerprint-official.mjs"
   }
 }

@@ -1,6 +1,7 @@
 node_modules/
 desktop/dist/
 desktop/out/
+samples/
 .DS_Store
 Thumbs.db
 *.log
