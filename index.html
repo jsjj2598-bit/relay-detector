@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-app-version="2.2.0">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -483,6 +483,63 @@
     </div>
   </footer>
 
-  <script type="module" src="./src/ui/app.js"></script>
+  <!-- 启动自检：
+       GitHub Pages 对 HTML/JS 都发 Cache-Control: max-age=600。
+       如果浏览器同时持有「新 HTML + 旧 app.js」，页面看起来正常但新功能（如降智诊断 tab）点了没反应。
+       这里在脚本没就绪时给出可操作的横幅，而不是让用户面对一个死按钮。
+       只有「始终没就绪」或「资源加载失败」才会触发，不影响正常运行。 -->
+  <script>
+    (function () {
+      var SHOWN = false;
+      function show(reason) {
+        if (SHOWN || window.__RD_READY__ === true) return;
+        SHOWN = true;
+        var bar = document.createElement('div');
+        bar.setAttribute('role', 'alert');
+        bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;padding:14px 18px;' +
+          'background:#7f1d1d;color:#fff;font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif;' +
+          'display:flex;gap:12px;align-items:center;flex-wrap:wrap;box-shadow:0 -4px 16px rgba(0,0,0,.35)';
+        var text = document.createElement('span');
+        text.style.flex = '1 1 520px';
+        text.textContent = '页面脚本没有正常运行（' + reason + '）。常见原因：浏览器缓存了旧版脚本，或网络加载被中断。';
+        var reload = document.createElement('button');
+        reload.type = 'button';
+        reload.textContent = '强制刷新（绕过缓存）';
+        reload.style.cssText = 'padding:8px 14px;border:0;border-radius:8px;background:#fff;color:#7f1d1d;font-weight:700;cursor:pointer';
+        reload.addEventListener('click', function () {
+          location.replace(location.pathname + '?v=' + Date.now());
+        });
+        var close = document.createElement('button');
+        close.type = 'button';
+        close.textContent = '关闭';
+        close.style.cssText = 'padding:8px 12px;border:1px solid rgba(255,255,255,.55);border-radius:8px;' +
+          'background:transparent;color:#fff;cursor:pointer';
+        close.addEventListener('click', function () { bar.remove(); });
+        bar.appendChild(text);
+        bar.appendChild(reload);
+        bar.appendChild(close);
+        (document.body || document.documentElement).appendChild(bar);
+      }
+      window.__RD_BOOT_FAIL__ = show;
+
+      // 资源加载失败（模块 404 / 503 / 网络中断）
+      window.addEventListener('error', function (event) {
+        var t = event && event.target;
+        if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) {
+          show('资源加载失败：' + (t.src || t.href || ''));
+          return;
+        }
+        // 脚本运行期异常，仅在「从未就绪」时提示
+        if (window.__RD_READY__ !== true && event && event.message) show('脚本出错：' + event.message);
+      }, true);
+
+      // 5 秒兜底：模块没被加载或初始化被打断
+      setTimeout(function () {
+        if (window.__RD_READY__ !== true) show('5 秒内没有完成初始化');
+      }, 5000);
+    })();
+  </script>
+
+  <script type="module" src="./src/ui/app.js?v=2.2.0"></script>
 </body>
 </html>

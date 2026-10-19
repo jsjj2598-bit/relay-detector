@@ -1189,6 +1189,18 @@ function init() {
   initAuthEngine(false);
   initDegrade();
   updateStartState();
+
+  // 启动自检：通知 index.html 里的内联守卫「应用已就绪」。
+  // 没有这一步，守卫会在 5 秒后误报；反过来若初始化中途抛错，守卫就不会置位，
+  // 于是会显示「强制刷新」横幅，而不是让用户面对一个点了没反应的页面。
+  window.__RD_READY__ = true;
 }
 
-init();
+try {
+  init();
+} catch (error) {
+  if (typeof window.__RD_BOOT_FAIL__ === 'function') {
+    window.__RD_BOOT_FAIL__('初始化异常：' + (error && error.message ? error.message : String(error)));
+  }
+  throw error;
+}

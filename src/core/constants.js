@@ -11,7 +11,7 @@
  *   ⇒ 因此「有 Cloudflare / 非自签证书」绝不能作为中转站证据。
  */
 
-export const VERSION = '2.1.0';
+export const VERSION = '2.2.0';
 
 /** 本次校准事实的采集时间与方式。 */
 export const CALIBRATION = {

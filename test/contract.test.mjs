@@ -634,7 +634,13 @@ test('index.html 引用的本地资源全部存在（契约 2.6）', (t) => {
     const abs = path.resolve(path.dirname(file), clean);
     assert.ok(fs.existsSync(abs), `index.html 引用了不存在的资源：${ref}（${abs}）`);
   }
-  assert.match(html, /src=["']\.\/src\/ui\/app\.js["']/, 'index.html 必须通过 ./src/ui/app.js 加载 UI');
+  // 允许可选的缓存失效查询串（如 ?v=2.2.0）：GitHub Pages 对 JS 发 max-age=600，
+  // 版本号能避免「新 HTML + 旧 app.js」导致新功能点了没反应。
+  assert.match(
+    html,
+    /src=["']\.\/src\/ui\/app\.js(?:\?[^"']*)?["']/,
+    'index.html 必须通过 ./src/ui/app.js（可带 ?v= 缓存失效参数）加载 UI'
+  );
   assert.match(html, /lang=["']zh-CN["']/, 'index.html 必须是中文页面（lang="zh-CN"）');
   assert.match(html, /\.\/src\/styles\/main\.css/, 'index.html 必须引用 ./src/styles/main.css');
 });

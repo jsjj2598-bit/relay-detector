@@ -295,6 +295,9 @@ engine 与 UI 都只能**读取**，不得修改。
 ### 2.6 UI 内部接口（ui 提供，engine 不依赖）
 
 - `index.html` → `<script type="module" src="./src/ui/app.js"></script>`
+  （**允许带缓存失效查询串**，如 `./src/ui/app.js?v=2.2.0`。
+  GitHub Pages 对 HTML/JS 统一发 `Cache-Control: max-age=600`，页面与脚本可能一旧一新，
+  导致「新加的 tab 点了没反应」；入口脚本带版本号可强制换新，配合 `index.html` 里的启动自检横幅兜底。）
 - `src/ui/render.js` 导出 `renderReport(container, report)`、`renderError(container, message)`
 - `src/ui/app.js` 只通过 `detect()` 与 `renderReport()` 连接引擎，不 import 任何 `rules/**`。
 

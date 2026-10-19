@@ -1,6 +1,6 @@
 {
   "name": "relay-detector",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "description": "API 中转站识别器 —— 判断接口是官方直连还是第三方中转、检测上游是不是真模型，并能从使用日志诊断能力退化信号（三条正交轴）。",
   "type": "module",
