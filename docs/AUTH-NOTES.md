@@ -331,16 +331,18 @@ token 数为粗略上界（thinking 档按 budget 2000 估算），仅供 UI 在
 ## 7. 离线自测记录
 
 自测脚本为临时文件（`%TEMP%\auth-engine-selftest.mjs`，**不入库**），全部通过注入 transport 完成，
-无任何网络请求。共 **128 项断言**，覆盖：
+无任何网络请求。共 **149 项断言**（v2.1 新增 21 项），覆盖：
 
 | 场景 | 结果 |
 | --- | --- |
-| 公开 API / 10 检测器名称、权重、顺序、kind、critical | ✅ 与契约 §6.4 逐项一致 |
-| 正常 Anthropic 上游（full 档） | ✅ `excellent`（97.6），thinking 100，token_parity skip |
+| 公开 API / 10 检测器名称、权重、顺序、kind、critical | ✅ 与契约 §6.4（v2.1）逐项一致；`thinking_signature.critical === true` |
+| 正常 Anthropic 上游（full 档） | ✅ `excellent`（97.6），thinking 100 且无 critical，token_parity skip |
 | thinking 请求参数（sonnet-4-5 adaptive / opus-4-1 enabled） | ✅ 顶层 `output_config.effort`、非流式、`max_tokens=16000`、无 `temperature`、探针 GCD(2378,1547) |
 | thinking 四档：无块 / 无签名 / 签名<50 / 正常 | ✅ 0/30/70/100，status 分别为 fail/fail/pass/pass |
-| 模型不支持 thinking（claude-3-5-haiku-20241022） | ✅ `skip`（model_capability_missing），总分 = 未 skip 项加权平均（96.67），不被拉低 |
+| **v2.1** thinking 缺失签名 critical | ✅ 无块(0)与无签名(30) 各 1 条 `missing_thinking_signature`，报告级封顶 `marginal`；短签名(70)/正常(100) 无 critical、verdict 不降级 |
+| 模型不支持 thinking（claude-3-5-haiku-20241022） | ✅ `skip`（model_capability_missing），**不产 critical**，总分 = 未 skip 项加权平均（96.67），verdict `excellent` |
 | 跨厂商泄漏（`claude_*` / `input_tokens` / `usage_source: anthropic`） | ✅ `fail` + criticalIssues；full 档分数 78.9 仍被 verdict 封顶为 `marginal` |
+| **v2.1** `node tools/check.mjs --demo` 四场景 | ✅ genuine → `excellent`(0 critical) / kiro → `marginal`(1) / leak → `marginal`(2) / dead → `invalid`(0) |
 | 干净 OpenAI 响应 | ✅ `cross_vendor_leak` pass，quick 档 100 分 |
 | 余额不足 `insufficient_quota` | ✅ `verdict: invalid`，`runError.code: insufficient_quota` |
 | `model_not_found` / 「无可用渠道」 | ✅ `verdict: invalid`，`runError.code: model_unavailable` |
@@ -354,7 +356,7 @@ token 数为粗略上界（thinking 档按 budget 2000 估算），仅供 UI 在
 | 检测器直连 run()（离线单测路径） | ✅ 返回合法 DetectorResult |
 | 模型能力表（日期后缀前缀匹配、未知模型 null） | ✅ |
 
-同时 `npm test`（v1 + contract + auth-scorer + auth-detectors）全绿，无回归。
+同时 `npm test`（v1 + contract v2.1 + auth-scorer/auth-detectors/auth-runner）**177 项全绿，0 fail 0 skip**，无回归。
 
 ---
 
