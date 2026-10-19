@@ -148,7 +148,7 @@ Settings → Data controls → Export data，解压后的 `conversations.json`�
  "stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":2}}}
 ```
 
-把文件放到任意路径（例如 `C:\Users\27385\新建文件夹\samples\`），把**路径**发我即可。
+把文件放到任意路径（例如 `<任意目录>\samples\`），把**路径**发我即可。
 若日志很大，给 **前 3 行 + 1 行异常样本** 就足够。
 
 ---

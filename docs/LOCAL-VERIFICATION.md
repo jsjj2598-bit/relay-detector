@@ -20,7 +20,7 @@
 用绝对路径最稳（路径含中文与空格时务必加引号）：
 
 ```powershell
-cd "C:\Users\27385\新建文件夹\relay-detector"
+cd "<你的项目目录>\relay-detector"
 ```
 
 > 补充：`npm run verify` 脚本**内部**的 `&&` 是由 npm 通过 `cmd.exe` 执行的，

@@ -38,7 +38,7 @@
 ### 1.1 推到 GitHub
 
 ```bash
-cd "C:\Users\27385\新建文件夹\relay-detector"
+cd "<你的项目目录>\relay-detector"
 git remote add origin https://github.com/<你的用户名>/relay-detector.git
 git branch -M main
 git push -u origin main
