@@ -13,6 +13,8 @@
  *  - 报告不含完整 API key（含上游回显 key 的脱敏）
  *  - 每个检测器 weight / status 合法，skip 时 score===0，report.score 与加权平均自洽
  *  - thinking 不支持 → skip 且总分不被拉低
+ *  - 契约 v2.1：thinking 签名缺失（score<=30）→ critical → 高分 passed 必须封顶 marginal；
+ *    签名正常 → 无 critical / excellent；skip → 绝不产 critical 且总分不受影响
  *  - cross_vendor critical → verdict 被封顶 marginal
  *  - estimateCost 请求数 / token 预估
  */
@@ -455,9 +457,11 @@ test('runAuthenticity：Anthropic 全绿上游（thinking 签名正常）→ sco
   assertAuthReportValid(report, 'anthropic-happy');
   assert.equal(report.score, 100, `detectors=${JSON.stringify(report.detectors.map((d) => [d.name, d.status, d.score]))}`);
   assert.equal(report.verdict, 'excellent');
+  assert.deepEqual(report.criticalIssues, [], '真模型（签名正常）不得有任何 criticalIssues');
   const thinking = report.detectors.find((d) => d.name === 'thinking_signature');
   assert.equal(thinking.status, 'pass');
   assert.equal(thinking.score, 100);
+  assert.deepEqual(thinking.criticalIssues, [], '签名正常时 thinking 检测器不得报 critical');
   const messageId = report.detectors.find((d) => d.name === 'message_id');
   assert.equal(messageId.status, 'pass');
 });
@@ -480,6 +484,9 @@ test('[关键回归] thinking 不支持 → thinking_signature skip，且总分�
   assert.equal(haikuThinking.status, 'skip', '模型不支持 thinking 时必须 skip');
   assert.equal(haikuThinking.score, 0);
   assert.equal(haikuThinking.reason, 'model_capability_missing');
+  assert.deepEqual(haikuThinking.criticalIssues, [], '契约 v2.1：skip 绝不能产出 criticalIssues');
+  assert.deepEqual(haikuReport.criticalIssues, [], '契约 v2.1：skip 场景整份报告不得有任何 critical');
+  assert.equal(haikuReport.verdict, 'excellent', 'skip 不产生 critical，不得封顶 verdict');
   assert.equal(
     haikuReport.score,
     weightedAverageExcludingSkip(haikuReport.detectors),
@@ -491,7 +498,7 @@ test('[关键回归] thinking 不支持 → thinking_signature skip，且总分�
     `必须给出 skip 说明 warnings，实际 ${JSON.stringify(haikuReport.warnings)}`
   );
 
-  // 同一个全绿上游，Sonnet 但上游吞掉 thinking 块 → 0 分，总分明显更低
+  // 同一个全绿上游，Sonnet 但上游吞掉 thinking 块 → 0 分 + critical → verdict 必须被压到 marginal
   const sonnetReport = await runAuthenticity({
     provider: 'anthropic',
     model: 'claude-sonnet-4-5',
@@ -502,8 +509,110 @@ test('[关键回归] thinking 不支持 → thinking_signature skip，且总分�
   const sonnetThinking = sonnetReport.detectors.find((d) => d.name === 'thinking_signature');
   assert.equal(sonnetThinking.status, 'fail');
   assert.equal(sonnetThinking.score, 0, '被声明支持 thinking 的模型无 thinking 块必须 0 分');
+  assert.ok(
+    sonnetThinking.criticalIssues.some((issue) => issue.code === 'missing_thinking_signature'),
+    `契约 v2.1：缺失签名必须报 critical，实际 ${JSON.stringify(sonnetThinking.criticalIssues)}`
+  );
   assert.ok(sonnetReport.score < haikuReport.score, `Sonnet 无 thinking 的总分(${sonnetReport.score})应低于 haiku 的 skip(${haikuReport.score})`);
-  assert.ok(sonnetReport.score >= 70, `其余检测器全绿时总分应仍在 passed 区间，实际 ${sonnetReport.score}`);
+  assert.ok(
+    sonnetReport.score >= 70,
+    `其余检测器全绿时总分仍会很高（正因如此才需要 critical 一票降级），实际 ${sonnetReport.score}`
+  );
+});
+
+/* ------------------------------------------------------------------ */
+/* 契约 v2.1 关键回归：thinking 签名缺失 → critical 一票降级               */
+/* ------------------------------------------------------------------ */
+
+/** 契约 v2.1 复现场景（Kiro / Amazon Q 冒充 Claude）：standard 档 + sonnet + 上游无 thinking 块。 */
+async function runKiroLikeAuthenticity(thinkingMode) {
+  return runAuthenticity({
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-5',
+    mode: 'standard',
+    apiKey: 'sk-ant-v21-regression',
+    transport: anthropicHappyTransport({ model: 'claude-sonnet-4-5', thinking: thinkingMode })
+  });
+}
+
+test('[v2.1 关键回归] 冒充 Claude（无 thinking 块）→ 高分 passed 必须被 critical 封顶为 marginal', async () => {
+  const report = await runKiroLikeAuthenticity('none');
+  assertAuthReportValid(report, 'v21-none');
+
+  const thinking = report.detectors.find((d) => d.name === 'thinking_signature');
+  assert.equal(thinking.status, 'fail');
+  assert.equal(thinking.score, 0);
+  assert.ok(
+    thinking.criticalIssues.some((issue) => issue.code === 'missing_thinking_signature'),
+    '检测器必须报 missing_thinking_signature'
+  );
+  assert.ok(
+    report.criticalIssues.some(
+      (issue) => issue.detector === 'thinking_signature' && issue.code === 'missing_thinking_signature'
+    ),
+    `报告级 criticalIssues 必须包含 thinking_signature/missing_thinking_signature，实际 ${JSON.stringify(report.criticalIssues)}`
+  );
+
+  // 前置：分数本身仍然很高（这正是缺陷：廉价结构项淹没最重要的证据）
+  assert.ok(report.score >= 70 && report.score < 85, `冒充场景总分应在 passed 区间（70..85），实际 ${report.score}`);
+  assert.equal(verdictFor(report.score), 'passed', '前置：无 critical 时该分数会判 passed（缺陷复现条件）');
+  // 关键断言：critical 一票降级
+  assert.equal(report.verdict, 'marginal', '契约 v2.1：缺失 thinking 签名必须把 passed 压到 marginal，冒充者不得「通过」');
+  assert.equal(report.summaryText, '基本合格');
+  assert.equal(report.runError, null, '这是真检测结果，不得是 invalid');
+});
+
+test('[v2.1 关键回归] 冒充 Claude（有 thinking 块但无签名，30 分）→ 同样 critical + marginal', async () => {
+  const report = await runKiroLikeAuthenticity('nosig');
+  assertAuthReportValid(report, 'v21-nosig');
+  const thinking = report.detectors.find((d) => d.name === 'thinking_signature');
+  assert.equal(thinking.score, 30);
+  assert.equal(thinking.status, 'fail');
+  assert.ok(thinking.criticalIssues.some((issue) => issue.code === 'missing_thinking_signature'));
+  assert.ok(
+    report.criticalIssues.some((issue) => issue.detector === 'thinking_signature'),
+    '报告级必须带 critical'
+  );
+  assert.equal(report.verdict, 'marginal', 'score<=30 的缺失签名必须封顶 marginal');
+});
+
+test('[v2.1] 签名过短（70 分）→ 只扣分、不产 critical，verdict 不被 critical 降级', async () => {
+  const report = await runKiroLikeAuthenticity('short');
+  assertAuthReportValid(report, 'v21-short');
+  const thinking = report.detectors.find((d) => d.name === 'thinking_signature');
+  assert.equal(thinking.score, 70);
+  assert.equal(thinking.status, 'pass');
+  assert.deepEqual(thinking.criticalIssues, [], 'score=70 只扣分，不得报 critical');
+  assert.deepEqual(
+    report.criticalIssues.filter((issue) => issue.detector === 'thinking_signature'),
+    [],
+    '报告级不得出现 thinking_signature 的 critical'
+  );
+  // 其余全绿、thinking 仅扣 30 分 → 总分 93.48（<100），按分数本应 excellent；
+  // 关键是不被 critical 封顶成 marginal（即 verdict === verdictFor(score)，而非被压低）。
+  assert.ok(report.score < 100, `短签名必须实际扣分，实际 score=${report.score}`);
+  assert.ok(report.score >= 85, `其余全绿时短签名扣分后仍应在 excellent 区间，实际 ${report.score}`);
+  assert.equal(verdictFor(report.score), 'excellent');
+  assert.equal(report.verdict, 'excellent', '签名过短只扣分，不应触发 critical 降级');
+});
+
+test('[v2.1 关键回归] 模型不支持 thinking（skip）→ 绝不产 critical，verdict 仍 excellent 且总分 100', async () => {
+  const haiku = 'claude-3-5-haiku-20241022';
+  const report = await runAuthenticity({
+    provider: 'anthropic',
+    model: haiku,
+    mode: 'standard',
+    apiKey: 'sk-ant-v21-skip',
+    transport: anthropicHappyTransport({ model: haiku, thinking: 'none' })
+  });
+  assertAuthReportValid(report, 'v21-skip');
+  const thinking = report.detectors.find((d) => d.name === 'thinking_signature');
+  assert.equal(thinking.status, 'skip', '模型不支持 thinking 必须 skip');
+  assert.equal(thinking.score, 0);
+  assert.deepEqual(thinking.criticalIssues, [], '契约 v2.1：skip 绝不能报 critical');
+  assert.deepEqual(report.criticalIssues, [], '契约 v2.1：skip 场景报告不得有任何 critical');
+  assert.equal(report.score, 100, 'skip 不进入分母，总分不得被拉低');
+  assert.equal(report.verdict, 'excellent', 'skip 不产生 critical，verdict 不得被封顶');
 });
 
 /* ------------------------------------------------------------------ */
@@ -782,7 +891,14 @@ test('full 档跑满 10 个检测器：stream_integrity pass，token_parity 因�
 /* estimateCost（发请求前的费用预估，契约 6.6）                           */
 /* ------------------------------------------------------------------ */
 
-test('estimateCost：返回契约要求的字段与合理请求数（档位单调、契约区间）', () => {
+test('estimateCost：请求数与契约 v2.1 §6.4 冻结的实测值一致（quick=4 / standard 7–8 / full 9–10）', () => {
+  // 契约 v2.1 §6.4 备注（已实测核对）：
+  //   quick = 4；standard = 7（OpenAI/Gemini）/ 8（Anthropic，含 thinking 探针）；full = 9 / 10。
+  const EXPECTED = {
+    openai: { quick: 4, standard: 7, full: 9 },
+    anthropic: { quick: 4, standard: 8, full: 10 },
+    gemini: { quick: 4, standard: 7, full: 9 }
+  };
   const cases = [
     ['openai', 'gpt-4o'],
     ['anthropic', 'claude-sonnet-4-5'],
@@ -790,13 +906,14 @@ test('estimateCost：返回契约要求的字段与合理请求数（档位单�
   ];
   for (const [provider, model] of cases) {
     let previous = 0;
-    for (const [mode, min, max] of [['quick', 3, 6], ['standard', 6, 14], ['full', 8, 20]]) {
+    for (const mode of AUTH_MODES) {
       const estimate = estimateCost({ provider, model, mode });
       assert.equal(typeof estimate.requests, 'number', `${provider}/${mode}: requests 必须是数字`);
       assert.ok(Number.isInteger(estimate.requests), `${provider}/${mode}: requests 必须是整数`);
-      assert.ok(
-        estimate.requests >= min && estimate.requests <= max,
-        `${provider}/${mode}: 请求数 ${estimate.requests} 超出契约 6.4 的经验区间 ${min}–${max}`
+      assert.equal(
+        estimate.requests,
+        EXPECTED[provider][mode],
+        `${provider}/${mode}: 请求数必须与契约 §6.4 冻结值 ${EXPECTED[provider][mode]} 一致，实际 ${estimate.requests}`
       );
       assert.ok(estimate.requests >= previous, `${provider}/${mode}: 档位越大请求数不得减少`);
       previous = estimate.requests;

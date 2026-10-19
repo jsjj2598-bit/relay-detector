@@ -117,6 +117,13 @@ total = Σ(score × weight) / Σ(weight)   // 只统计 status ∉ {skip, error}
 `effectiveVerdict`：`excellent` / `passed` 一律封顶为 **`marginal`**；`marginal` / `failed` 保持不变。
 分数仍按加权平均计算（critical 与分数解耦），所以可能出现「分数 85+、结论 marginal」。
 
+当前会产生 critical 的检测器（契约 v2.1）：
+
+| 来源 | critical code | 触发条件 |
+| --- | --- | --- |
+| `cross_vendor_leak` | `cross_vendor_*` | 响应里出现跨厂商字段（如 OpenAI 形状出现 `claude_cache_creation_5_m_tokens` / `usage_source: anthropic`） |
+| `thinking_signature` | `missing_thinking_signature` | `status: 'fail'` 且 `score <= 30`：**完全拿不到** Claude 服务端 thinking 签名（无 thinking 块=0 / 有块无签名=30）。签名过短（70）只扣分、不 critical；`skip`（模型不支持 thinking）绝不 critical。见 §4.4 / §9 |
+
 ### 3.4 「检测无效」不是「未达标」
 
 `fatalRunError(results)` 命中条件：
@@ -192,15 +199,24 @@ Claude 服务端 thinking 签名 = 本引擎的最强单点证据（LEARNINGS §
   - `max_tokens: 16000`（太小模型会为了塞下而跳过思考）；
   - 探针：多步欧几里得 `gcd(2378, 1547)`，刻意避开官方文档的 1071/462。
 - **评分（契约冻结四档）**：
-  | 观测 | 分数 | status |
-  | --- | --- | --- |
-  | 无 `thinking` / `redacted_thinking` 块 | 0 | fail |
-  | 有块但无 `signature` | 30 | fail |
-  | 签名长度 < 50 | 70 | pass |
-  | 签名长度 ≥ 50（实测真实签名 500–2000+） | 100 | pass |
+  | 观测 | 分数 | status | critical |
+  | --- | --- | --- | --- |
+  | 无 `thinking` / `redacted_thinking` 块 | 0 | fail | ✅ `missing_thinking_signature` |
+  | 有块但无 `signature` | 30 | fail | ✅ `missing_thinking_signature` |
+  | 签名长度 < 50 | 70 | pass | ❌（只扣分） |
+  | 签名长度 ≥ 50（实测真实签名 500–2000+） | 100 | pass | ❌ |
+- **critical 规则（契约 v2.1）**：`status: 'fail'` 且 `score <= 30` → 额外产出
+  `criticalIssues: [{ code: 'missing_thinking_signature', message: '拿不到 Claude 服务端 thinking 签名，上游不是真实 Anthropic 实现（可能是 Kiro/Amazon Q/Bedrock 简化通道或签名被剥离）', evidence: { score, thinkingBlockSeen, signatureReceived, signatureLength } }]`；
+  检测器元信息 `critical: true`。**签名过短（70 分）不报 critical**（弱证据，只扣分）；
+  **`skip`（模型不支持 thinking / 未知模型）绝不报 critical**（haiku 场景必须保持 skip、不拉低总分）。
+- **为什么签名缺失是 critical 而不是普通扣分**：thinking 签名由 Anthropic 服务端私钥产生，
+  真实实现开启 thinking 时**必然**返回它；拿不到它说明上游不是真实 Anthropic 实现（模型被掉包），
+  属于「结论级」问题，而不是「质量略差」。若只按加权平均，25% 权重的这条证据会被 7 条 100 分的
+  廉价结构项淹没（实测冒充场景 73.9 分 → `passed`），因此必须用 critical 一票降级兜住。
+  详见 §9 v2.1 变更记录。
 - **上游拒绝 thinking 参数**（400 且错误文本涉及 thinking/budget_tokens/output_config/effort/adaptive）
-  → 判 `fail`、0 分：对一个「能力表说它支持 thinking」的模型，这是可疑信号，而不是网络错误。
-  其余 HTTP / 传输错误 → `status: 'error'`（不进入分母）。
+  → 判 `fail`、0 分并报 `missing_thinking_signature` critical：对一个「能力表说它支持 thinking」的模型，
+  这是可疑信号，而不是网络错误。其余 HTTP / 传输错误 → `status: 'error'`（不进入分母、不产生 critical）。
 - **局限**：只知道「有没有签名」，不能验证签名内容；`redacted_thinking` 按「有块无签名」计 30 分
   （契约只定义四档，保守处理）。
 
@@ -292,12 +308,12 @@ Claude 服务端 thinking 签名 = 本引擎的最强单点证据（LEARNINGS §
 `estimateCost` 的请求数来自与 runner 相同的 `REQUEST_PLAN`（quick=4，standard=7–8，full=9–10），
 token 数为粗略上界（thinking 档按 budget 2000 估算），仅供 UI 在**发请求前**要求用户确认。
 
-> **与契约 §6.4 备注请求数（standard 约 10–14 / full 约 14–20）的差异属刻意设计，不是漏实现。**
-> 契约原文用「约」描述量级，不是验收项；本实现坚持「每个检测器只发它真正需要的采样请求」：
-> `model_consistency` 固定 3 次（契约明确要求 3 次）、`stream_integrity` 固定 2 条路径、
-> 其余主动检测器各 1 次。为了凑到 10–14 / 14–20 而增加重复请求只会增加用户扣费，
-> 不会提高判据质量（同一请求的重复响应几乎不提供新证据）。因此本实现的请求数低于该经验量级，
-> 但 `estimateCost().requests`、runner 实际发出数、报告 `cost.requests` 三者**始终自洽**。
+> **请求数取舍（契约 v2.1 §6.4 已按实测冻结）**：契约 v2.1 明确记录
+> `quick = 4`、`standard = 7（OpenAI/Gemini）/ 8（Anthropic，含 thinking 探针）`、
+> `full = 9 / 10`，并注明「刻意比早期估算更低（减少用户扣费），是实现取舍而非漏实现」。
+> 本实现坚持「每个检测器只发它真正需要的采样请求」：`model_consistency` 固定 3 次、
+> `stream_integrity` 固定 2 条路径、其余主动检测器各 1 次；不发重复请求凑数。
+> `estimateCost().requests`、runner 实际发出数、报告 `cost.requests` 三者**始终自洽**。
 > 该说明同时写入了 `estimateCost().note`，UI 会在费用确认处原样展示给用户。
 
 ---
@@ -360,6 +376,65 @@ token 数为粗略上界（thinking 档按 budget 2000 估算），仅供 UI 在
 7. **`redacted_thinking` 按「有块无签名」计 30 分**：契约只定义四档；如果未来确认 redacted 块
    也应视为强证据，需要 Lead 更新契约后再调整。
 8. **并发恒为 1**：为了降低风控风险牺牲了速度；`concurrency` 选项被忽略（是契约默认值）。
-9. **请求数低于契约 §6.4 备注的经验量级**：standard 7–8 / full 9–10（契约备注「约 10–14 / 14–20」）。
-   这是刻意的成本取舍——只发必要的采样请求，不为凑数发重复请求；不涉及评分/判定语义，
-   且 `estimateCost().requests` / 实际请求数 / `cost.requests` 三者自洽。详见 §5 的说明。
+9. **请求数按成本取舍压缩**：standard 7–8 / full 9–10。契约 v2.1 §6.4 已把该实测值写入冻结表，
+   并注明「刻意比早期估算更低（减少用户扣费），是实现取舍而非漏实现」；
+   `estimateCost().requests` / 实际请求数 / `cost.requests` 三者自洽。详见 §5 的说明。
+
+---
+
+## 9. v2.1 变更记录
+
+**日期**：2026-10-19　**契约依据**：`docs/CONTRACT.md` v2.1 §6.3 / §6.4 / §8.3（Lead 更新，FROZEN）
+
+### 9.1 背景：端到端验收暴露的真实产品缺陷
+
+`node tools/check.mjs --demo kiro`（模拟 Kiro / Amazon Q 式冒充：拿不到 Claude thinking 签名，
+其它协议字段全部正常）在 v2.0 下输出：
+
+```
+真伪评分 73.913 / verdict = passed（通过）
+检测器：thinking_signature fail 0 w=25，其余 7 项全部 pass 100
+```
+
+**问题**：最重要的那条证据（权重 25 的 thinking 签名）被 7 条 100 分的廉价结构项按加权平均
+「淹没」了，冒充者被判「通过」。这恰好是 critical 一票降级机制要解决的场景，但
+`thinking_signature` 在 v2.0 不产 critical，机制没有生效。
+
+### 9.2 修复（仅 `src/core/auth/detectors/thinking-signature.js`）
+
+1. 检测器元信息 `critical: false` → **`critical: true`**（契约 v2.1 §6.4 表：`是（仅缺失签名时）`）。
+2. `status: 'fail'` 且 `score <= 30`（无 thinking 块 = 0 / 有块无签名 = 30）时产出：
+   ```js
+   criticalIssues: [{
+     code: 'missing_thinking_signature',
+     message: '拿不到 Claude 服务端 thinking 签名，上游不是真实 Anthropic 实现（可能是 Kiro/Amazon Q/Bedrock 简化通道或签名被剥离）',
+     evidence: { score, thinkingBlockSeen, signatureReceived, signatureLength }
+   }]
+   ```
+3. 边界（刻意不扩大打击面）：
+   - `score === 70`（签名过短）**不报** critical——弱证据，只扣分；
+   - 模型不支持 thinking / 未知模型 → `skip`，**绝不报** critical（haiku 场景保持优秀且总分 100）；
+   - 上游拒绝 thinking 参数（对「声明支持 thinking」的模型）→ fail 0 且同样报
+     `missing_thinking_signature`（拿不到签名的事实一致），evidence 额外带 `requestRejected`。
+4. `effectiveVerdict` 无需改动：criticalIssues 非空即把 `passed` / `excellent` 封顶为 `marginal`。
+
+### 9.3 修复后端到端结果（`node tools/check.mjs --demo <scenario>`，本地假中转站，不联网）
+
+| 场景 | 真伪评分 | verdict | summaryText | criticalIssues | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `genuine`（诚实转发、签名正常） | 95.65 | `excellent` | 优秀 | **0** | 不误伤真上游 |
+| `kiro`（无 thinking 块冒充） | 73.91 | **`marginal`** | 基本合格 | **1**（`missing_thinking_signature`） | 高分不再能「通过」 |
+| `leak`（GPT 请求被转给 Claude，跨厂商泄漏） | 67.06 | `marginal` | 基本合格 | 2（`cross_vendor_*`） | 原有 critical 机制保持 |
+| `dead`（模型渠道不存在） | 0 | `invalid` | 检测无效 | 0 | 仍为「检测无效」，不是低分 |
+
+> 注意 `kiro` 的**分数保持 73.91 不变**（critical 与分数解耦），变的只是 verdict 从
+> `passed` 封顶为 `marginal`——UI 必须把 criticalIssues 红色横幅置于评分之上，否则用户会困惑。
+
+### 9.4 回归
+
+- auth-test 新增 v2.1 断言（检测器表 `critical: true`、无块/无签名 critical + marginal、
+  短签名不 critical 且不降级、skip 不 critical 且总分 100、报告级 criticalIssues 形状）。
+- 我的离线自测同步新增「missing_thinking_signature critical / 70 分不 critical / skip 不 critical」
+  断言；`npm test` 全量门禁全绿。
+- 请求数取舍同步写入契约 v2.1 §6.4（quick=4 / standard 7–8 / full 9–10），
+  与 `estimateCost()`、runner 实际请求数、`cost.requests` 三者一致。

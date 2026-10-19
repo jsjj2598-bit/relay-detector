@@ -163,6 +163,11 @@ Claude 开启扩展思考时，响应 `content[]` 里的 `thinking` / `redacted_
   而非简单乘法，避免被固定题面特判。
 
 > 需要强调的是：签名能证明「上游是真实 Anthropic 实现」，**不能**证明「模型是满血版 / 未被降智」。
+>
+> **v2.1 起，签名缺失是 `critical` 而非普通扣分**：如果模型明确支持 thinking、我们也明确请求了
+> thinking，却拿不到服务端签名，那么「其余所有协议字段都正确」也不能救它。
+> 否则一条 25% 权重的致命项会被 7 条 100 分的廉价结构项淹没，冒充者会被判「通过」。
+> 模型本身不支持 thinking（如 haiku）时仍是 `skip`，**绝不会**误报 critical，也不会拉低总分。
 
 ### 三档深度与费用
 
@@ -323,10 +328,12 @@ curl "http://127.0.0.1:8787/proxy?url=https%3A%2F%2Fapi.anthropic.com%2Fv1%2Fmod
 ├─ proxy/                          本地代理（TLS 证书读取 + 透传 + SSRF 防护）
 ├─ test/                           Node 内置测试 + 离线 fixture
 ├─ tools/
+│  ├─ check.mjs                    命令行验证工具（--demo 零依赖自证 / 验你自己的站）
 │  ├─ fingerprint-official.mjs     官方端点指纹采集（匿名，不消耗额度）
 │  ├─ acceptance.mjs               连接轴端到端验收（真实 HTTP 假中转站）
 │  └─ acceptance-auth.mjs          真伪轴端到端验收（模拟真 Claude / 冒充 / 跨厂商泄漏 / 无渠道）
 ├─ docs/
+│  ├─ LOCAL-VERIFICATION.md        本地验证指南（逐层步骤 + 预期输出 + 排错）
 │  ├─ CONTRACT.md                  接口契约（v1 + v2，已冻结）
 │  ├─ ENGINE-NOTES.md              71 条规则依据与置信度
 │  ├─ AUTH-NOTES.md                10 个真伪检测器算法与阈值
@@ -336,12 +343,18 @@ curl "http://127.0.0.1:8787/proxy?url=https%3A%2F%2Fapi.anthropic.com%2Fv1%2Fmod
 
 ## 开发与测试
 
+> **完整的本地验证步骤（含每层的预期输出与排错）见
+> [docs/LOCAL-VERIFICATION.md](docs/LOCAL-VERIFICATION.md)。**
+> 最省事的一条：`npm run verify`（测试 + 真伪轴验收 + 冒充场景冒烟）。
+
 ```bash
-npm test                          # 单元 + 契约 + 离线 fixture（约 171 项，无需联网）
+npm run verify                    # 一键验证（推荐）
+npm test                          # 单元 + 契约 + 离线 fixture（177 项，无需联网）
                                   # = node --test "test/**/*.test.mjs"
-node tools/acceptance.mjs --live   # 连接轴端到端验收
-node tools/acceptance-auth.mjs     # 真伪轴端到端验收（本地假中转站，不联网）
-node proxy/server.mjs              # 本地起代理并托管页面
+node tools/check.mjs --demo kiro  # 零依赖自证：模拟冒充 Claude（不需要任何 Key）
+node tools/acceptance-auth.mjs    # 真伪轴端到端验收（本地假中转站，不联网）
+node tools/acceptance.mjs --live  # 连接轴端到端验收（含真实 api.anthropic.com）
+node proxy/server.mjs             # 本地起代理并托管页面
 node tools/fingerprint-official.mjs --json   # 重新采集官方端点指纹（匿名）
 ```
 

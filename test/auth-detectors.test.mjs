@@ -8,6 +8,8 @@
  *  - 检测器注册表与契约 §6.4 冻结表（name / weight / modes / provider / kind / critical）
  *  - 每个检测器 run() 绝不抛异常
  *  - thinking_signature 四种状态（无块=0 / 有块无签名=30 / 短签名=70 / 正常=100）
+ *  - v2.1：score<=30（缺失签名）必须报 `missing_thinking_signature` critical，并通过 effectiveVerdict
+ *    把本应 passed 的高分冒充场景封顶为 marginal；score=70/100 不得报 critical；skip 绝不报 critical
  *  - thinking_signature 请求参数（非流式、max_tokens、adaptive vs extended）
  *  - 模型不支持 thinking → appliesTo=false / status=skip（不拉低总分）
  *  - cross_vendor_leak：跨厂商字段 → critical
@@ -51,7 +53,8 @@ const CONTRACT_TABLE = [
   { name: 'protocol_shape', weight: 20, kind: 'active', critical: false, modes: ['quick', 'standard', 'full'], provider: [] },
   { name: 'cross_vendor_leak', weight: 20, kind: 'passive', critical: true, modes: ['quick', 'standard', 'full'], provider: [] },
   { name: 'model_consistency', weight: 15, kind: 'active', critical: false, modes: ['quick', 'standard', 'full'], provider: [] },
-  { name: 'thinking_signature', weight: 25, kind: 'active', critical: false, modes: ['standard', 'full'], provider: ['anthropic'] },
+  // 契约 v2.1 §6.4：thinking_signature 的 critical 列改为「是（仅缺失签名时）」。
+  { name: 'thinking_signature', weight: 25, kind: 'active', critical: true, modes: ['standard', 'full'], provider: ['anthropic'] },
   { name: 'message_id', weight: 5, kind: 'passive', critical: false, modes: ['standard', 'full'], provider: ['anthropic'] },
   { name: 'token_usage', weight: 10, kind: 'active', critical: false, modes: ['standard', 'full'], provider: [] },
   { name: 'structured_output', weight: 10, kind: 'active', critical: false, modes: ['standard', 'full'], provider: [] },
@@ -158,16 +161,24 @@ function anthropicThinkingCtx(content, { model = SONNET } = {}) {
   return makeCtx({ provider: 'anthropic', model, transport });
 }
 
-test('[关键回归] thinking_signature：无 thinking 块 → 0 分 fail（Kiro / Amazon Q 场景）', async () => {
+test('[v2.1 关键回归] thinking_signature：无 thinking 块 → 0 分 fail + critical missing_thinking_signature', async () => {
   const ctx = anthropicThinkingCtx([{ type: 'text', text: '1547' }]);
   const result = await thinkingSignature.run(ctx);
   assertDetectorResultShape(result, 'thinking_signature');
   assert.equal(result.status, 'fail', '无 thinking 块必须 fail');
   assert.equal(result.score, 0, '无 thinking 块必须 0 分（契约 §8.3）');
   assert.equal(result.details.tier, 'no_thinking_block');
+  assert.ok(
+    Array.isArray(result.criticalIssues) && result.criticalIssues.some((issue) => issue.code === 'missing_thinking_signature'),
+    `契约 v2.1：score<=30 必须报 missing_thinking_signature critical，实际 ${JSON.stringify(result.criticalIssues)}`
+  );
+  const issue = result.criticalIssues.find((item) => item.code === 'missing_thinking_signature');
+  assert.equal(typeof issue.message, 'string', 'criticalIssue.message 必须是字符串');
+  assert.ok(issue.message.length > 0, 'criticalIssue.message 不得为空');
+  assert.ok('evidence' in issue, 'criticalIssue 必须带 evidence');
 });
 
-test('[关键回归] thinking_signature：有 thinking 块但无签名 → 30 分 fail', async () => {
+test('[v2.1 关键回归] thinking_signature：有 thinking 块但无签名 → 30 分 fail + critical', async () => {
   // 注意：不能用 thinkingBlock({ signature: undefined })——函数默认参数会把 undefined 变成正常长签名。
   const noSignature = [{ type: 'thinking', thinking: '先把 2378 除以 1547……' }, { type: 'text', text: '1547' }];
   const ctx = anthropicThinkingCtx(noSignature);
@@ -176,17 +187,22 @@ test('[关键回归] thinking_signature：有 thinking 块但无签名 → 30 �
   assert.equal(result.score, 30, '有块无签名必须 30 分（契约 §8.3）');
   assert.equal(result.details.signatureLength, 0);
   assert.equal(result.details.tier, 'block_without_signature');
+  assert.ok(
+    result.criticalIssues.some((issue) => issue.code === 'missing_thinking_signature'),
+    '契约 v2.1：score=30 同样必须报 missing_thinking_signature critical'
+  );
 });
 
-test('thinking_signature：签名 < 50 字符 → 70 分', async () => {
+test('[v2.1] thinking_signature：签名 < 50 字符（70 分）→ 只扣分、不产 critical', async () => {
   const ctx = anthropicThinkingCtx([thinkingBlock({ signature: 'short-signature-abc' }), { type: 'text', text: '1' }]);
   const result = await thinkingSignature.run(ctx);
   assert.equal(result.score, 70, '短签名必须 70 分');
   assert.equal(result.status, 'pass', '70 分按 >=70 判 pass');
   assert.equal(result.details.tier, 'signature_too_short');
+  assert.deepEqual(result.criticalIssues, [], '契约 v2.1：score=70 只扣分，不得报 critical');
 });
 
-test('[关键回归] thinking_signature：正常长签名 → 100 分', async () => {
+test('[v2.1 关键回归] thinking_signature：正常长签名 → 100 分且无 critical（genuine 不得被误伤）', async () => {
   const context = anthropicThinkingCtx([
     thinkingBlock({ signature: 'EqQBCkgIBRABGAIiQL' + 'a'.repeat(400) }),
     { type: 'text', text: '1547' }
@@ -195,6 +211,25 @@ test('[关键回归] thinking_signature：正常长签名 → 100 分', async ()
   assert.equal(result.score, 100, '正常长签名必须 100 分（契约 §8.3）');
   assert.equal(result.status, 'pass');
   assert.equal(result.details.tier, 'signature_ok');
+  assert.deepEqual(result.criticalIssues, [], '正常签名不得报 critical');
+});
+
+test('[v2.1 关键回归] 签名缺失 critical → 高总分 78.26（本应 passed）必须被 effectiveVerdict 封顶 marginal', async () => {
+  // 复现 Kiro/Amazon Q 冒充场景：thinking 0 分 + critical，其余 standard 档 7 项全部 100 分。
+  const missingSignature = await thinkingSignature.run(anthropicThinkingCtx([{ type: 'text', text: '1547' }]));
+  const standardOthers = AUTH_DETECTORS.slice(0, 8).filter((detector) => detector.name !== 'thinking_signature');
+  assert.equal(standardOthers.length, 7, '标准档除 thinking 外应有 7 个检测器');
+  const results = [missingSignature, ...standardOthers.map((detector) => buildResult(detector, { status: 'pass', score: 100 }))];
+
+  const total = computeTotal(results);
+  // 权重 90（其余 7 项）* 100 + 25 * 0 = 9000 / 115 ≈ 78.26
+  assert.ok(total >= 70 && total < 85, `前置：冒充场景总分应落在 passed 区间（70..85），实际 ${total}`);
+  assert.equal(verdictFor(total), 'passed', '前置：没有 critical 时这个分数会判 passed（正是缺陷所在）');
+  assert.equal(
+    effectiveVerdict(total, results),
+    'marginal',
+    '契约 v2.1：缺失 thinking signature 的 critical 必须把 passed 封顶为 marginal，绝不能让冒充者「通过」'
+  );
 });
 
 test('scoreThinkingBlocks 纯函数：四档边界（0 / 30 / 70 / 100）', () => {
@@ -239,13 +274,14 @@ test('thinking_signature：extended 模型使用 thinking {type:"enabled", budge
   assert.equal(body.output_config, undefined, 'extended 模式不需要 output_config');
 });
 
-test('[关键回归] thinking_signature：模型不支持 thinking（claude-3-5-haiku-20241022）→ skip 且不拉低总分', async () => {
+test('[v2.1 关键回归] thinking_signature：模型不支持 thinking（claude-3-5-haiku-20241022）→ skip、无 critical、且不拉低总分', async () => {
   const model = 'claude-3-5-haiku-20241022';
   const ctx = makeCtx({ provider: 'anthropic', model });
   assert.equal(thinkingSignature.appliesTo(ctx), false, '不支持 thinking 的模型 appliesTo 必须为 false');
   assert.equal(thinkingSignature.skipReason(ctx), 'model_capability_missing');
   const skip = buildResult(thinkingSignature, { status: 'skip', score: 0, reason: 'model_capability_missing' });
   assert.equal(skip.score, 0);
+  assert.deepEqual(skip.criticalIssues, [], '契约 v2.1：skip 场景绝不能报 critical（模型本来就不支持 thinking）');
 
   // 只有「其他检测器 100 分」时，thinking 的 skip 不得把总分拉低
   const results = [
@@ -254,7 +290,22 @@ test('[关键回归] thinking_signature：模型不支持 thinking（claude-3-5-
     buildResult({ name: 'token_usage', displayName: 'y', weight: 10 }, { status: 'pass', score: 100 })
   ];
   assert.equal(computeTotal(results), 100, 'skip 不进入分母：总分必须仍是 100');
-  assert.equal(effectiveVerdict(computeTotal(results), results), 'excellent');
+  assert.equal(effectiveVerdict(computeTotal(results), results), 'excellent', 'skip 不得把 excellent 拉低');
+});
+
+test('[v2.1] thinking_signature：skip 结果不得让 effectiveVerdict 降级（与 fail/critical 明确区分）', () => {
+  const skipResult = buildResult(thinkingSignature, {
+    status: 'skip',
+    score: 0,
+    reason: 'model_capability_missing'
+  });
+  const others = [
+    buildResult({ name: 'protocol_shape', displayName: 'x', weight: 20 }, { status: 'pass', score: 100 }),
+    buildResult({ name: 'model_consistency', displayName: 'y', weight: 15 }, { status: 'pass', score: 100 })
+  ];
+  const results = [skipResult, ...others];
+  assert.equal(computeTotal(results), 100, 'skip 不进分母');
+  assert.equal(effectiveVerdict(computeTotal(results), results), 'excellent', 'skip 不产生 critical，不得封顶');
 });
 
 test('thinking_signature：非 Anthropic 协议 → appliesTo=false（provider_not_applicable）', () => {

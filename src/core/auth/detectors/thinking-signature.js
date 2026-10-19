@@ -37,6 +37,44 @@ export const THINKING_MAX_TOKENS = 16000;
 /** 正常签名的长度下限（实测真实签名 500–2000+ 字符）。 */
 export const SIGNATURE_MIN_LENGTH = 50;
 
+/**
+ * v2.1：签名缺失属于 **critical**（critical 一票降级，见契约 §6.2 / §6.3 的机制）。
+ *
+ * 为什么不是普通扣分（见 docs/AUTH-NOTES.md §4.4 / §9）：
+ *  - thinking 签名由 Anthropic 服务端私钥产生，是「加密级」证据；
+ *    **真实 Anthropic 实现在开启 thinking 时必然返回签名**。
+ *  - 拿不到签名意味着上游不是真实 Anthropic 实现（Kiro / Amazon Q / Bedrock
+ *    简化通道，或中转层把签名剥离了），这不是「质量略差」，而是「模型被掉包」。
+ *  - 在加权平均里，这条 25% 权重的证据会被 7 条 100 分的廉价结构项淹没
+ *    （实测：kiro 场景 73.9 分 → passed），必须用 critical 一票降级兜住。
+ *  - 但「签名过短（70 分）」只扣分、不 critical：那是弱证据，可能是截断/格式差异。
+ */
+export const MISSING_SIGNATURE_CRITICAL_CODE = 'missing_thinking_signature';
+
+const MISSING_SIGNATURE_MESSAGE =
+  '拿不到 Claude 服务端 thinking 签名，上游不是真实 Anthropic 实现（可能是 Kiro/Amazon Q/Bedrock 简化通道或签名被剥离）';
+
+/**
+ * 构造「签名缺失」critical 问题（契约 v2.1 固定 code / message / evidence 四字段）。
+ *
+ * @param {{score:number, thinkingBlockSeen:boolean, signatureReceived:boolean,
+ *          signatureLength:number, extra?:object}} input
+ */
+export function missingSignatureCritical(input = {}) {
+  const evidence = {
+    score: Number.isFinite(input.score) ? input.score : 0,
+    thinkingBlockSeen: input.thinkingBlockSeen === true,
+    signatureReceived: input.signatureReceived === true,
+    signatureLength: Number.isFinite(input.signatureLength) ? input.signatureLength : 0
+  };
+  if (input.extra && typeof input.extra === 'object') Object.assign(evidence, input.extra);
+  return {
+    code: MISSING_SIGNATURE_CRITICAL_CODE,
+    message: MISSING_SIGNATURE_MESSAGE,
+    evidence
+  };
+}
+
 function preview(value, max = 160) {
   const text = safeText(value);
   return text.length > max ? `${text.slice(0, max)}…` : text;
@@ -81,7 +119,9 @@ export class ThinkingSignatureDetector extends ActiveDetector {
       weight: 25,
       modes: ['standard', 'full'],
       provider: ['anthropic'],
-      critical: false,
+      // 契约 v2.1 §6.4：critical 列改为「是（仅缺失签名时）」——
+      // 仅当 status=fail 且 score<=30 时产出 criticalIssues；签名过短(70)/skip 绝不产出。
+      critical: true,
       description: '用非流式 thinking 请求检查 Claude 服务端签名（无块=0 / 无签名=30 / 过短=70 / 正常=100）。'
     });
   }
@@ -138,10 +178,23 @@ export class ThinkingSignatureDetector extends ActiveDetector {
       if (thinkingRejected) {
         // 模型能力表说它支持 thinking，但上游拒绝了 thinking 参数：
         // 对被声明支持的模型，这是明显的「不是真模型 / 中转层改写了请求」信号。
+        // v2.1：拿不到签名（含请求被拒）→ critical，verdict 封顶 marginal。
         return buildResult(this, {
           status: 'fail',
           score: 0,
           error: failure.error,
+          criticalIssues: [
+            missingSignatureCritical({
+              score: 0,
+              thinkingBlockSeen: false,
+              signatureReceived: false,
+              signatureLength: 0,
+              extra: {
+                requestRejected: true,
+                httpStatus: exchange?.response?.status ?? null
+              }
+            })
+          ],
           details: {
             ...failure.details,
             httpStatus: exchange?.response?.status ?? null,
@@ -228,12 +281,28 @@ export class ThinkingSignatureDetector extends ActiveDetector {
       }
     ];
 
+    // v2.1：status=fail 且 score<=30（无 thinking 块=0 / 有块无签名=30）
+    // ⇒ 完全拿不到服务端签名 ⇒ critical 一票降级（70 分的「签名过短」不算）。
+    const missingSignature = scored.score <= 30;
+    const criticalIssues = missingSignature
+      ? [
+          missingSignatureCritical({
+            score: scored.score,
+            thinkingBlockSeen: scored.hasBlock,
+            signatureReceived: Boolean(signature),
+            signatureLength: scored.signatureLength
+          })
+        ]
+      : [];
+
     return buildResult(this, {
       status: scored.score >= 70 ? 'pass' : 'fail',
       score: scored.score,
+      criticalIssues,
       details: {
         subChecks,
         tier: scored.tier,
+        signatureMissingCritical: missingSignature,
         signatureLength: scored.signatureLength,
         signaturePreview: signature ? preview(signature, 24) : '',
         thinkingTextLength: thinking.thinkingText.length,

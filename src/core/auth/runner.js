@@ -716,7 +716,7 @@ export function estimateCost(input = {}) {
   const unknownModel = !ctxLike.modelInfo;
   const noteParts = [
     `档位「${mode}」预计发出 ${requests} 个可能计费的 chat 请求（串行执行，避免触发风控）。`,
-    '本实现的请求数刻意低于契约 §6.4 备注的经验量级（standard 约 10–14 / full 约 14–20）：' +
+    '请求数按契约 v2.1 §6.4 冻结的实测值（quick=4 / standard 7–8 / full 9–10）：' +
       '每个检测器只发必要的采样请求（model_consistency 固定 3 次、stream_integrity 固定 2 条路径），' +
       '不为凑请求数发重复请求，以降低用户扣费；estimateCost 与 runner 实际请求数、cost.requests 始终一致。',
     'token 数为粗略上界估算：thinking 档按 budget 2000 估算，实际可能更高；最终费用取决于服务商单价与缓存命中。',

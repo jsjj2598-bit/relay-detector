@@ -443,7 +443,7 @@ export function summaryText(verdict, score) -> string
 | `protocol_shape` | 全部 | active | 20 | 否 | quick+ | 响应结构是否符合官方协议（id/object/choices/stop_reason/usage 键） |
 | `cross_vendor_leak` | 全部 | passive | 20 | **是** | quick+ | 跨厂商字段泄漏（OpenAI 响应出现 `claude_*`/`input_tokens` 等） |
 | `model_consistency` | 全部 | active | 15 | 否 | quick+ | 响应 `model` 字段回显 + 3 次 temp=0 的 completion_tokens 变异系数 CV |
-| `thinking_signature` | anthropic | active | 25 | 否 | standard+ | Claude thinking 服务端签名（无 thinking 块=0，有块无签名=30，签名过短=70，正常=100） |
+| `thinking_signature` | anthropic | active | 25 | **是（仅缺失签名时）** | standard+ | Claude thinking 服务端签名（无 thinking 块=0，有块无签名=30，签名过短=70，正常=100）。`score <= 30` 时报 `missing_thinking_signature` critical；`skip` 时**绝不**报 critical |
 | `message_id` | anthropic | passive | 5 | 否 | standard+ | `msg_` / `toolu_` / `srvtoolu_` 前缀、`type`、`role`、`model` 含 claude |
 | `token_usage` | 全部 | active | 10 | 否 | standard+ | usage 自洽性：字符/token 比 1.2–10、completion 未超 max_tokens、total 自洽 |
 | `structured_output` | 全部 | active | 10 | 否 | standard+ | 要求返回精确 JSON 字面量，检查是否被包 ```json 代码块 |
@@ -553,6 +553,9 @@ const auth = await runAuthenticity({
 2. 每个检测器的**离线单测**：用伪造的 exchange/fetch 响应构造，不联网。
 3. 关键回归（必须有）：
    - thinking 签名缺失 → `thinking_signature` 得 0 分且 `status: 'fail'`（Kiro/Amazon Q 场景）
+   - **v2.1**：签名缺失（`score <= 30`）必须产出 `missing_thinking_signature` critical，
+     且 `verdict` 由 `passed` 封顶为 `marginal`；签名过短（70 分）**不产** critical；
+     `skip`（模型不支持 thinking）**绝不产** critical 且不拉低总分
    - 签名存在且长度正常 → 100 分
    - 模型不支持 thinking → `status: 'skip'`，**总分不得被拉低**
    - OpenAI 响应里出现 `claude_cache_creation_5_m_tokens` → `cross_vendor_leak` 报 critical，`verdict` 被封顶
