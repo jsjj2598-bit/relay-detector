@@ -83,6 +83,10 @@ jobs:
 
       - name: 配置 Pages
         uses: actions/configure-pages@v5
+        with:
+          # 仓库尚未启用 Pages 时，由本步骤自动开启（使用 GITHUB_TOKEN 的 pages: write 权限）。
+          # 否则 configure-pages 会因 "Get Pages site failed / Not Found" 直接失败。
+          enablement: true
 
       - name: 准备站点产物（仓库根目录，等价本地代理的静态托管）
         run: |
