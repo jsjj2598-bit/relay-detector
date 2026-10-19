@@ -1,5 +1,7 @@
 # relay-detector · API 中转站识别器
 
+**在线使用（GitHub Pages，无需安装）**：<https://jsjj2598-bit.github.io/relay-detector/>
+
 ![中转站检测器：三根正交的轴](assets/og-cover.png)
 
 判断一个 OpenAI 兼容 / Anthropic Claude / Google Gemini 的 API 基址，回答**三个正交的问题**：
