@@ -6,6 +6,22 @@
   <title>中转站检测器 · Relay Detector</title>
   <meta name="description" content="判断一个 API 基址是官方直连还是第三方中转站，并独立验证第三方上游给的是不是真模型：两根正交的轴、带证据链的评分报告。纯静态、可部署到 GitHub Pages，费用预估与确认后才发付费请求，并显式呈现不确定性。" />
   <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#0b1120" />
+
+  <!-- 分享卡片（群聊 / 论坛 / X / 微信外的社交平台）。
+       注意：og:image 最好用**绝对 URL**；部署后请把 ./assets/og-cover.png
+       替换成 https://<你的域名>/assets/og-cover.png -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="中转站检测器 · Relay Detector" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:title" content="中转站检测器：这接口是官方直连、第三方中转，还是上游被掉包？" />
+  <meta property="og:description" content="两根正交的轴：轴 1 判断连接方式，轴 2 判断上游是不是真模型（Claude thinking 签名验真 / 跨厂商字段泄漏检测）。纯前端，API Key 不经过任何服务器。" />
+  <meta property="og:image" content="./assets/og-cover.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="中转站检测器 · Relay Detector" />
+  <meta name="twitter:description" content="判断 API 是官方直连、第三方中转，还是上游被掉包。两根正交的轴，不合并成一个分数。" />
+  <meta name="twitter:image" content="./assets/og-cover.png" />
+
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='24' font-size='24'%3E%F0%9F%94%8D%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="./src/styles/main.css" />
 </head>

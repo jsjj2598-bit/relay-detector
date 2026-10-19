@@ -1,5 +1,7 @@
 # relay-detector · API 中转站识别器
 
+![中转站检测器：两根正交的轴](assets/og-cover.png)
+
 判断一个 OpenAI 兼容 / Anthropic Claude / Google Gemini 的 API 基址，回答**两个正交的问题**：
 
 | 轴 | 问题 | 输出 |
@@ -235,6 +237,9 @@ Claude 开启扩展思考时，响应 `content[]` 里的 `thinking` / `redacted_
 ## 快速开始
 
 三种深度，页面本身不需要任何构建步骤。
+
+> 完整的**上线与分发方案**（GitHub Pages / 自定义域名 / 浏览器扩展 / 云端探测 API 的取舍与安全红线）
+> 见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
 ### 方式 A：GitHub Pages（纯浏览器，零安装）
 
