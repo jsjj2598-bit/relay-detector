@@ -249,9 +249,12 @@ Claude 开启扩展思考时，响应 `content[]` 里的 `thinking` / `redacted_
 ### 方式 B：本地代理（推荐，能读 TLS 与完整响应头）
 
 ```bash
-git clone <this-repo> && cd relay-detector
+git clone <this-repo>
+cd relay-detector
 node proxy/server.mjs            # 默认 http://127.0.0.1:8787
 ```
+
+> Windows PowerShell 5.1 **不支持 `&&`**，请把命令分两行写（或在 PowerShell 7 / cmd / Git Bash 里用 `&&`）。
 
 然后浏览器打开 <http://127.0.0.1:8787/>，模式选「本地代理」。
 

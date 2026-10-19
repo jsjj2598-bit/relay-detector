@@ -6,6 +6,26 @@
 > 环境要求：Node.js **21+**（推荐 24）。本项目**没有任何运行时依赖**，不需要 `npm install`。
 > 先确认：`node -v`。
 
+## ⚠️ Windows 用户先看这里
+
+**Windows PowerShell 5.1 不支持 `&&`**（它会报 `标记"&&"不是此版本中的有效语句分隔符`）。
+本项目所有命令都**不要**用 `&&` 连接：
+
+| 环境 | 错误写法 | 正确写法 |
+| --- | --- | --- |
+| PowerShell 5.1 | `cd relay-detector && npm test` | `cd relay-detector` 回车，再 `npm test`（或用分号 `cd relay-detector; npm test`） |
+| PowerShell 7 / cmd / bash | 可用 `&&` | 保持原样 |
+
+另外注意**当前目录**：先确认你的终端不在 `C:\WINDOWS\System32` 之类的位置。
+用绝对路径最稳（路径含中文与空格时务必加引号）：
+
+```powershell
+cd "C:\Users\27385\新建文件夹\relay-detector"
+```
+
+> 补充：`npm run verify` 脚本**内部**的 `&&` 是由 npm 通过 `cmd.exe` 执行的，
+> 不受 PowerShell 版本影响，可以放心用。
+
 ---
 
 ## 第 0 层：一键验证（最省事）
