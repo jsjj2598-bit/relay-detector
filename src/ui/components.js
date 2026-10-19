@@ -236,24 +236,35 @@ function ringTone(score) {
 }
 
 /**
- * 评分环：中间数字为 score（越高越像中转站）。
- * 注意：score 是「方向性证据的比例」，不等于确定性。
+ * 评分环：中间数字为 score。
+ * 默认语义是 v1 的「中转倾向指数」；v2 真伪轴会覆盖 caption / tone / ariaLabel，
+ * 使同一个可视化组件能表达两种完全不同的轴，而不会让用户误读。
+ *
+ * 注意：score 是「方向性证据的比例」或真伪加权分，不等于确定性。
  */
 export function scoreRing(score, opts = {}) {
-  const { size = 152, stroke = 13, evidenceStrength = 0 } = opts;
+  const {
+    size = 152,
+    stroke = 13,
+    evidenceStrength = 0,
+    caption = '中转倾向指数',
+    tone = null,
+    ariaLabel = null
+  } = opts;
   const value = clamp(num(score, 0), 0, 100);
   const ratio = value / 100;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const dash = (circumference * ratio).toFixed(2);
   const rest = circumference.toFixed(2);
+  const ringToneValue = tone || ringTone(value);
 
   const svg = svgEl('svg', {
     viewBox: `0 0 ${size} ${size}`,
     width: size,
     height: size,
     role: 'img',
-    'aria-label': `中转倾向指数 ${value} / 100，证据强度 ${formatPercent(evidenceStrength)}`
+    'aria-label': ariaLabel || `中转倾向指数 ${value} / 100，证据强度 ${formatPercent(evidenceStrength)}`
   },
     svgEl('circle', {
       cx: size / 2, cy: size / 2, r: radius, fill: 'none',
@@ -267,13 +278,13 @@ export function scoreRing(score, opts = {}) {
     })
   );
 
-  return h('div', { class: `score-ring tone-${ringTone(value)}` },
+  return h('div', { class: `score-ring tone-${ringToneValue}` },
     svg,
     h('div', { class: 'ring-center' },
       h('div', { class: 'ring-number', text: String(value) }),
       h('div', { class: 'ring-unit', text: '/ 100' })
     ),
-    h('p', { class: 'ring-caption', text: '中转倾向指数' })
+    h('p', { class: 'ring-caption', text: String(caption) })
   );
 }
 

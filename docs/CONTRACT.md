@@ -345,3 +345,217 @@ engine 与 UI 都只能**读取**，不得修改。
    ⚠️ 不要写成 `node --test test/` —— Node 24 的测试运行器会把「目录位置参数」当作模块去 require，
    直接报 `Cannot find module '.../test'` 而一个测试都不跑（已实测复现）。
    CI 与 README 必须使用本文件规定的命令。
+
+---
+
+# 契约 v2 · 上游真伪检测（authenticity）
+
+> 背景与设计依据见 `docs/LEARNINGS-FROM-VERIDROP.md`。v2 是**纯增量**：
+> v1 的 `score/verdict`（连接方式轴）语义不变，新增独立的「上游真伪」轴。
+> 两个轴必须分开呈现，禁止合并成一个分数。
+
+## 5. 概念模型
+
+一次检测有两根正交的轴：
+
+| 轴 | 字段 | 回答的问题 | 取值 |
+| --- | --- | --- | --- |
+| 连接轴（v1） | `report.score` / `report.verdict` | 我连的是官方还是第三方？ | `official` / `likely-official` / `inconclusive` / `likely-relay` / `relay` |
+| 真伪轴（v2） | `report.authenticity.score` / `.verdict` | 第三方上游给我的**是不是真模型**？ | `excellent` / `passed` / `marginal` / `failed` / `invalid` |
+
+典型组合：`relay + passed` = 诚实中转（可用）；`relay + failed` = 模型被掉包（立刻换）；
+`official` 时真伪轴应为 `skip`（无意义）。
+
+## 6. 检测器框架（`src/core/auth/**`）
+
+### 6.1 Detector 形状
+
+```js
+/** @typedef {Object} Detector */
+{
+  name: 'thinking_signature',       // 全局唯一，snake_case
+  displayName: '思维签名验证',
+  weight: 25,                        // 0..100，参与加权平均
+  modes: ['standard', 'full'],       // 允许运行的档位
+  provider: ['anthropic'],           // 适用的协议；空数组 = 全协议
+  critical: false,                   // 是否会产出 critical 级问题
+  appliesTo(ctx): boolean,           // 模型能力是否支持（如模型不支持 thinking 就 false）
+  kind: 'active' | 'passive',
+
+  // active：自己发请求
+  async run(ctx): Promise<DetectorResult>,
+  // passive：复用他人请求，零额外成本
+  observe(ctx, exchange): void,
+  finalize(ctx): DetectorResult
+}
+```
+
+### 6.2 DetectorResult
+
+```js
+{
+  name, displayName, weight,
+  status: 'pass' | 'fail' | 'skip' | 'error',
+  score: 0,                 // status === 'skip' 时必须为 0，且**不计入分母**
+  details: { subChecks: [...], ... },   // 一律可序列化，报告原样展示
+  error: null | string,
+  durationMs: 0,
+  criticalIssues: [ { code, message, evidence } ]   // 可选
+}
+```
+
+**硬性语义**（这是 v2 最重要的规则）：
+
+1. `skip` 与 `error` **不进入**加权分母。`skip` 表示「本来就无法测」（模型不支持 / 档位没选），
+   `error` 表示「测了但网络/上游报错」。两者都**不得**被当作 0 分拉低总分。
+2. 全部检测器都 `skip` 时，`verdict = 'invalid'`（不是 0 分）。
+3. `status: 'pass'` 的判定阈值：`score >= 70`。
+4. 检测器 `run()` **绝不能抛异常**：runner 会兜住并转成 `status: 'error'`。
+
+### 6.3 评分（`src/core/auth/scorer.js`）
+
+```js
+export function computeTotal(results) -> number
+// 仅统计 status !== 'skip' && status !== 'error' 的结果：
+//   total = Σ(score × weight) / Σ(weight)   （分母为 0 时返回 0）
+
+export function verdictFor(score) -> 'excellent' | 'passed' | 'marginal' | 'failed'
+// score >= 85 → excellent；>= 70 → passed；>= 50 → marginal；< 50 → failed
+
+export function hasCriticalIssues(results) -> boolean
+export function effectiveVerdict(score, results) -> verdict
+// critical 一票否决：base === 'passed' 时封顶为 'marginal'（excellent 同理降到 marginal）
+
+export function fatalRunError(results) -> null | { code, message }
+// 命中上游余额/额度/model_not_found/无可用渠道时返回：
+//   code: 'insufficient_quota' | 'model_unavailable'
+// 命中时整份报告 verdict = 'invalid'，禁止输出低分误导用户
+
+export function summaryText(verdict, score) -> string
+// excellent → '优秀'；passed → '通过'；marginal → '基本合格'；
+// failed → '未达标'；invalid → '检测无效'
+```
+
+### 6.4 检测器清单与权重（冻结）
+
+| name | 协议 | kind | 权重 | critical | 档位 | 说明 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `protocol_shape` | 全部 | active | 20 | 否 | quick+ | 响应结构是否符合官方协议（id/object/choices/stop_reason/usage 键） |
+| `cross_vendor_leak` | 全部 | passive | 20 | **是** | quick+ | 跨厂商字段泄漏（OpenAI 响应出现 `claude_*`/`input_tokens` 等） |
+| `model_consistency` | 全部 | active | 15 | 否 | quick+ | 响应 `model` 字段回显 + 3 次 temp=0 的 completion_tokens 变异系数 CV |
+| `thinking_signature` | anthropic | active | 25 | 否 | standard+ | Claude thinking 服务端签名（无 thinking 块=0，有块无签名=30，签名过短=70，正常=100） |
+| `message_id` | anthropic | passive | 5 | 否 | standard+ | `msg_` / `toolu_` / `srvtoolu_` 前缀、`type`、`role`、`model` 含 claude |
+| `token_usage` | 全部 | active | 10 | 否 | standard+ | usage 自洽性：字符/token 比 1.2–10、completion 未超 max_tokens、total 自洽 |
+| `structured_output` | 全部 | active | 10 | 否 | standard+ | 要求返回精确 JSON 字面量，检查是否被包 ```json 代码块 |
+| `capability_tools` | 全部 | active | 10 | 否 | standard+ | tool call / function calling 是否真实生效（返回 tool_calls 结构） |
+| `stream_integrity` | 全部 | active | 10 | 否 | full | 流式 vs 非流式：文本相似度 ≥ 85、input_tokens 差 ≤ max(3, 20%)、output_tokens 接近 |
+| `token_parity` | 全部 | active | 10 | 否 | full | 与内置官方基线对齐（无基线则 `skip`，不扣分） |
+
+> 权重**不需要**在单协议内求和为 100，`computeTotal` 用的是加权平均（分母自适应）。
+> 但同一档位内应保持相对比例合理。
+>
+> **实际请求数（以 `estimateCost()` 的输出为准，已实测核对）**：
+> `quick` = 4 个请求；`standard` = 7（OpenAI/Gemini）/ 8（Anthropic，含 thinking 探针）个；
+> `full` = 9 / 10 个。**刻意比早期估算更低**（减少用户扣费），
+> 这是实现上的取舍而非漏实现，`estimateCost` 与实际 `cost.requests` 必须保持一致。
+
+### 6.5 模型能力表（`src/core/auth/models.js`）
+
+```js
+export const MODEL_REGISTRY = {
+  anthropic: [
+    { id: 'claude-sonnet-4-5',   thinking: 'extended', supportsTools: true, contextWindow: 200000 },
+    { id: 'claude-opus-4-1',     thinking: 'extended', ... },
+    { id: 'claude-3-5-haiku-20241022', thinking: null, ... }   // 不支持 thinking → 该检测器 skip
+  ],
+  openai: [ { id: 'gpt-4o', ... } ],
+  gemini: [ { id: 'gemini-2.5-flash', ... } ]
+};
+export function lookupModel(provider, model) -> ModelInfo | null   // 支持前缀匹配（带日期后缀的模型）
+export function suggestModels(provider) -> ModelInfo[]
+```
+
+`lookupModel` 匹配不到时必须返回 `null`（而不是抛错），并使依赖模型能力的检测器 `skip`。
+
+### 6.6 公开 API（`src/core/auth/index.js`）
+
+```js
+import { runAuthenticity, estimateCost, AUTH_MODES } from '../core/auth/index.js';
+
+const auth = await runAuthenticity({
+  provider: 'anthropic',            // 'openai' | 'anthropic' | 'gemini'
+  baseUrl: 'https://relay.example.com/v1',
+  apiKey: 'sk-...',
+  model: 'claude-sonnet-4-5',
+  mode: 'standard',                 // 'quick' | 'standard' | 'full'
+  transport,                        // 与 fetch 同签名；proxy 模式由 engine 注入
+  options: {
+    timeoutMs: 60000,
+    signal: null,
+    maxRequests: 24,                // 硬上限，防止失控扣费
+    concurrency: 1                  // 默认串行，避免触发风控
+  }
+});
+```
+
+返回值：
+
+```js
+{
+  schema: 1,
+  provider, model, mode,
+  score: 0..100,
+  verdict: 'excellent' | 'passed' | 'marginal' | 'failed' | 'invalid',
+  summaryText: '优秀' | '通过' | '基本合格' | '未达标' | '检测无效',
+  detectors: [DetectorResult],
+  criticalIssues: [{ detector, code, message, evidence }],
+  runError: null | { code, message },
+  cost: { requests, promptTokens, completionTokens, note },
+  warnings: [string],               // 如「该模型不支持 thinking，已跳过签名验证」
+  startedAt, finishedAt, durationMs
+}
+```
+
+`estimateCost({ provider, model, mode }) -> { requests, promptTokens, completionTokens, note }`
+必须在**发请求前**给 UI 用于展示预估费用。
+
+### 6.7 安全红线（v2 追加）
+
+1. API key 只存在于内存与请求头；**禁止**写 localStorage / 写日志 / 进 report。
+   报告中的 key 一律 `maskApiKey()`：保留前 4 + 后 4，中间替换为 `••••`。
+2. `maxRequests` 是硬上限，命中后剩余检测器 `skip`（reason: `request_budget_exhausted`）。
+3. 默认**不**发长上下文探针（`full` 档也不发，需用户另行显式开启 `longContext: true`）。
+4. 所有请求必须带超时与 `AbortSignal`。
+
+---
+
+## 7. UI 契约（v2 追加）
+
+`report.authenticity` 可能为 `null`（未做真伪检测）。UI 必须：
+
+1. 在表单增加「检测深度」三选一：
+   - `指纹（免费，无需 Key）` → 只做 v1，`authenticity = null`
+   - `真伪（需要 API Key，消耗额度）` → v2 standard 档
+   - `完整（指纹 + 真伪 full）`
+2. 选择需要 Key 的档位时，**发请求前**展示 `estimateCost()` 的请求数与 token 预估，并要求用户显式勾选确认。
+3. 报告区新增独立的「上游真伪」卡片：评分环、`summaryText`、检测器表格（name / 状态 / 分数 / 权重 / skip 原因 / subChecks 折叠）、
+   `criticalIssues` 红色横幅、`runError` 时显示「检测无效」而非低分。
+4. 连接轴与真伪轴必须**并列展示**，禁止合并。典型组合要给出一句话解读，例如
+   「中转站，但上游为真模型 → 可用」/「中转站，且上游疑似被掉包 → 建议更换」。
+
+---
+
+## 8. 测试契约（v2 追加）
+
+`test/**` 必须覆盖：
+
+1. `scorer`：加权平均、`skip`/`error` 不进分母、全 skip → `invalid`、critical 一票降级、`fatalRunError` 两种 code。
+2. 每个检测器的**离线单测**：用伪造的 exchange/fetch 响应构造，不联网。
+3. 关键回归（必须有）：
+   - thinking 签名缺失 → `thinking_signature` 得 0 分且 `status: 'fail'`（Kiro/Amazon Q 场景）
+   - 签名存在且长度正常 → 100 分
+   - 模型不支持 thinking → `status: 'skip'`，**总分不得被拉低**
+   - OpenAI 响应里出现 `claude_cache_creation_5_m_tokens` → `cross_vendor_leak` 报 critical，`verdict` 被封顶
+   - 上游返回 `insufficient_quota` → `verdict: 'invalid'`，不得显示为低分
+4. `runAuthenticity` 在 transport 全部失败时**不抛异常**，返回 `verdict: 'invalid'`。
+5. key 脱敏：报告中不出现完整 key。

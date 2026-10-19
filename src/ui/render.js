@@ -39,6 +39,12 @@ import {
   num,
   clamp
 } from './components.js';
+import {
+  normalizeAuthenticity,
+  renderAuthenticityCard,
+  authenticityToText
+} from './authenticity.js';
+import { interpretAxes, depthRunsAuth, depthLabel } from './form-state.js';
 
 /** 类别展示顺序（信号分组）。 */
 export const CATEGORY_ORDER = ['url', 'tls', 'headers', 'error', 'models', 'payload', 'behavior', 'signature', 'other'];
@@ -59,6 +65,13 @@ export function normalizeReport(report) {
 
   return {
     schema: num(r.schema, 1),
+    /**
+     * 轴 1 是否可用：v2 的「真伪」档位只跑 v2，会在报告里显式写 `connection: null`，
+     * 此时连接轴整体显示为「未检测」，绝不伪造 v1 分数。
+     */
+    connectionAvailable: r.connection !== null,
+    /** 轴 2：report.authenticity。缺失 / null 时按「未执行真伪检测」渲染（向后兼容）。 */
+    authenticity: normalizeAuthenticity(r.authenticity),
     target: {
       input: typeof target.input === 'string' ? target.input : '',
       baseUrl: typeof target.baseUrl === 'string' ? target.baseUrl : '',
@@ -128,12 +141,26 @@ export function renderEmpty(container, message = '填写上方表单后点击「
 export function renderLoading(container, info = {}) {
   if (!container) return;
   const target = typeof info.baseUrl === 'string' ? info.baseUrl : '';
+  const depth = typeof info.depth === 'string' ? info.depth : 'fingerprint';
+  const runsAuth = depthRunsAuth(depth);
+  const requests = num(info.authRequests, 0);
+
+  const hints = runsAuth
+    ? [
+        `检测深度：${depthLabel(depth)}。真伪检测会串行发送约 ${requests > 0 ? requests : '十来个'} 个真实请求，可能产生费用，请留意目标账户账单。`,
+        '真伪检测可能持续数十秒；「检测无效」与「未达标」会在报告中完全分开呈现。'
+      ]
+    : [
+        '本档位只发出只读探测（模型列表 / 必然失败的鉴权探测），不会发送可能计费的对话请求。',
+        '若目标不允许跨域，探测可能被 CORS 拦截，这不代表目标不可用。'
+      ];
+
   container.replaceChildren(
     h('div', { class: 'state-card loading-state' },
       h('div', { class: 'spinner', 'aria-hidden': 'true' }),
-      h('h3', { class: 'state-title', text: '正在探测…' }),
+      h('h3', { class: 'state-title', text: runsAuth ? '正在探测（含真伪检测，需要一点时间）…' : '正在探测…' }),
       h('p', { class: 'state-text', text: target ? `目标：${target}` : '正在读取目标端点的公开特征。' }),
-      h('p', { class: 'state-hint', text: '浏览器模式只会发出只读探测（模型列表 / 必然失败的鉴权探测）。若目标不允许跨域，探测可能被 CORS 拦截，这不代表目标不可用。' })
+      h('ul', { class: 'hint-list' }, hints.map((text) => h('li', { text })))
     )
   );
 }
@@ -448,6 +475,45 @@ function renderProbe(probe, index) {
   );
 }
 
+/** 轴 1：连接方式（v1 报告主体）。 */
+function renderConnectionAxis(report) {
+  return h('section', {
+    class: 'axis-card axis-connection',
+    'aria-labelledby': 'connection-axis-title'
+  },
+    h('header', { class: 'axis-head' },
+      h('div', { class: 'axis-head-main' },
+        h('span', { class: 'axis-index', text: '轴 1' }),
+        h('h3', { class: 'axis-title', id: 'connection-axis-title', text: '连接方式：我连的是官方还是第三方？' })
+      ),
+      h('p', { class: 'axis-sub', text: '基于域名、TLS、响应头、错误报文、模型列表等连接层特征。与下方「上游真伪」轴并列，禁止合并成一个分数。' })
+    ),
+    renderSummary(report)
+  );
+}
+
+/** 轴 1 未检测（「真伪」档位只跑 v2 时）。 */
+function renderConnectionUnavailable() {
+  return h('section', {
+    class: 'axis-card axis-connection axis-unavailable',
+    'aria-labelledby': 'connection-axis-title'
+  },
+    h('header', { class: 'axis-head' },
+      h('div', { class: 'axis-head-main' },
+        h('span', { class: 'axis-index', text: '轴 1' }),
+        h('h3', { class: 'axis-title', id: 'connection-axis-title', text: '连接方式：本次未检测' })
+      ),
+      h('p', { class: 'axis-sub', text: '你选择了「真伪」档位：只回答「第三方上游给的是不是真模型」，不判断你连的是官方还是中转站。' })
+    ),
+    h('div', { class: 'state-card empty-state small' },
+      h('div', { class: 'state-icon', 'aria-hidden': 'true', text: '🔗' }),
+      h('h4', { class: 'state-title', text: '连接方式轴未执行' }),
+      h('p', { class: 'state-text', text: '如需同时判断「官方直连 / 中转站」，请选择「完整（指纹 + 真伪 full）」档位重新检测。' }),
+      h('p', { class: 'state-hint', text: '免费档位只判断连接方式；真伪档位只判断上游真假。两根轴互不替代。' })
+    )
+  );
+}
+
 /** 导出与复制操作条。 */
 function renderActions(report) {
   const json = () => JSON.stringify(report, null, 2);
@@ -475,17 +541,33 @@ function renderActions(report) {
 
 /**
  * 渲染完整报告。
- * 内部整体 try/catch：即使 report 形状异常，也不会把页面搞白屏。
+ *
+ * 契约 v2 第 7 节：连接轴（轴 1）与真伪轴（轴 2）必须**并列展示、禁止合并**。
+ * 因此这里固定先渲染轴 1 卡片，再渲染独立的「上游真伪」卡片；
+ * `report.authenticity` 为 null 时真伪卡片显示「本次未执行真伪检测」而不会报错。
  */
 export function renderReport(container, report) {
   if (!container) return;
   try {
     const r = normalizeReport(report);
+    const connectionAxis = r.connectionAvailable ? renderConnectionAxis(r) : renderConnectionUnavailable();
+    const authenticityAxis = renderAuthenticityCard(r.authenticity, {
+      connectionVerdict: r.connectionAvailable ? r.verdict : null,
+      connectionAvailable: r.connectionAvailable,
+      whenMissing: r.connectionAvailable
+        ? undefined
+        : '本次选择了「真伪」档位：只做上游真伪检测，未执行连接方式检测。'
+    });
+
     const children = [
-      renderSummary(r),
+      h('div', { class: 'axes-intro' },
+        h('p', { class: 'axes-intro-text', text: '本报告有两条正交的轴：轴 1 判断「你连的是官方还是第三方」，轴 2 判断「第三方上游给的是不是真模型」。两者分开呈现，不合并成一个分数。' })
+      ),
+      connectionAxis,
+      authenticityAxis,
       renderActions(r),
-      renderSignals(r),
-      renderProbes(r)
+      r.connectionAvailable ? renderSignals(r) : null,
+      r.connectionAvailable ? renderProbes(r) : null
     ].filter(Boolean);
     container.replaceChildren(h('div', { class: 'report' }, children));
   } catch (error) {
@@ -500,12 +582,28 @@ export function renderReport(container, report) {
 /** 纯文本结论摘要（用于复制 / 粘贴到 issue）。 */
 export function reportToText(report) {
   const r = normalizeReport(report);
+  const combo = interpretAxes({
+    connectionVerdict: r.connectionAvailable ? r.verdict : null,
+    connectionAvailable: r.connectionAvailable,
+    authVerdict: r.authenticity ? r.authenticity.verdict : null
+  });
+
   const lines = [];
   lines.push('API 中转站检测报告（概率性判断，不构成确定性结论）');
   lines.push(`目标：${r.target.baseUrl || r.target.input || '—'}`);
   lines.push(`协议族：${PROVIDER_LABELS[r.target.provider] || r.target.provider || '—'} · 模式：${r.mode === 'proxy' ? '本地代理' : '浏览器直连'}`);
-  lines.push(`判定：${VERDICT_LABELS[r.verdict]}（score=${r.score}/100，officialScore=${r.officialScore}/100，evidenceStrength=${formatPercent(r.evidenceStrength)}）`);
-  lines.push(`信号数量：${r.signals.length} · 耗时：${formatDuration(r.durationMs)}`);
+  lines.push('');
+  if (r.connectionAvailable) {
+    lines.push('轴 1 · 连接方式（我连的是官方还是第三方）：');
+    lines.push(`判定：${VERDICT_LABELS[r.verdict]}（score=${r.score}/100，officialScore=${r.officialScore}/100，evidenceStrength=${formatPercent(r.evidenceStrength)}）`);
+    lines.push(`信号数量：${r.signals.length} · 耗时：${formatDuration(r.durationMs)}`);
+  } else {
+    lines.push('轴 1 · 连接方式：本次未检测（仅执行了真伪检测）。');
+  }
+  lines.push('');
+  lines.push(`两轴组合解读：${combo.text}`);
+  lines.push('');
+  lines.push(authenticityToText(r.authenticity, { comboText: combo.text }));
   if (r.notes.length) {
     lines.push('');
     lines.push('过程说明：');

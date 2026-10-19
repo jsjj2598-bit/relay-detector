@@ -679,3 +679,150 @@ test('src/ui/** 不 import rules/** 或 provider 内部（契约 2.6）', (t) =>
     );
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* v2 契约 6.6：report.authenticity 形状（契约 8 第 4 条）                 */
+/* ------------------------------------------------------------------ */
+
+/** authenticity 轴的合法 verdict（契约 5 / 6.6）。 */
+const AUTH_VERDICTS = ['excellent', 'passed', 'marginal', 'failed', 'invalid'];
+const AUTH_MODES = ['quick', 'standard', 'full'];
+const DETECTOR_STATUSES = ['pass', 'fail', 'skip', 'error'];
+const FATAL_CODES = ['insufficient_quota', 'model_unavailable'];
+
+/** 校验 authenticity 轴符合契约 6.6（或为 null，表示未做真伪检测）。 */
+function assertAuthenticityValid(auth, label) {
+  if (auth === null || auth === undefined) return; // 契约 7：authenticity 可能为 null
+  assert.ok(typeof auth === 'object', `${label}: authenticity 必须是对象或 null`);
+  assert.equal(auth.schema, 1, `${label}: authenticity.schema 必须为 1`);
+  assert.ok(PROVIDERS.includes(auth.provider), `${label}: 非法 authenticity.provider "${auth.provider}"`);
+  assert.ok(auth.model === null || typeof auth.model === 'string', `${label}: authenticity.model 形状非法`);
+  assert.ok(AUTH_MODES.includes(auth.mode), `${label}: 非法 authenticity.mode "${auth.mode}"`);
+  assert.equal(typeof auth.score, 'number', `${label}: authenticity.score 必须是数字`);
+  assert.ok(auth.score >= 0 && auth.score <= 100, `${label}: authenticity.score 越界 ${auth.score}`);
+  assert.ok(AUTH_VERDICTS.includes(auth.verdict), `${label}: 非法 authenticity.verdict "${auth.verdict}"`);
+  assert.equal(typeof auth.summaryText, 'string', `${label}: authenticity.summaryText 必须是字符串`);
+
+  assert.ok(Array.isArray(auth.detectors), `${label}: authenticity.detectors 必须是数组`);
+  const names = new Set();
+  for (const d of auth.detectors) {
+    assert.ok(d && typeof d === 'object', `${label}: DetectorResult 必须是对象`);
+    assert.equal(typeof d.name, 'string', `${label}: detector.name 必须是字符串`);
+    assert.ok(!names.has(d.name), `${label}: detector.name 重复 "${d.name}"`);
+    names.add(d.name);
+    assert.equal(typeof d.displayName, 'string', `${label}/${d.name}: displayName 必须是字符串`);
+    assert.ok(DETECTOR_STATUSES.includes(d.status), `${label}/${d.name}: 非法 status "${d.status}"`);
+    assert.equal(typeof d.weight, 'number', `${label}/${d.name}: weight 必须是数字`);
+    assert.ok(d.weight >= 0 && d.weight <= 100, `${label}/${d.name}: weight 越界 ${d.weight}`);
+    assert.equal(typeof d.score, 'number', `${label}/${d.name}: score 必须是数字`);
+    assert.ok(d.score >= 0 && d.score <= 100, `${label}/${d.name}: score 越界 ${d.score}`);
+    if (d.status === 'skip') assert.equal(d.score, 0, `${label}/${d.name}: status=skip 时 score 必须为 0（契约 6.2）`);
+    assert.ok(d.details === undefined || (d.details && typeof d.details === 'object'), `${label}/${d.name}: details 形状非法`);
+    assert.ok(d.error === null || d.error === undefined || typeof d.error === 'string', `${label}/${d.name}: error 形状非法`);
+    assert.equal(typeof d.durationMs, 'number', `${label}/${d.name}: durationMs 必须是数字`);
+    assert.ok(d.durationMs >= 0, `${label}/${d.name}: durationMs 不得为负`);
+    if (d.criticalIssues !== undefined) {
+      assert.ok(Array.isArray(d.criticalIssues), `${label}/${d.name}: criticalIssues 必须是数组`);
+      for (const ci of d.criticalIssues) {
+        assert.equal(typeof ci.code, 'string', `${label}/${d.name}: criticalIssue.code 必须是字符串`);
+        assert.equal(typeof ci.message, 'string', `${label}/${d.name}: criticalIssue.message 必须是字符串`);
+        assert.ok('evidence' in ci, `${label}/${d.name}: criticalIssue 必须有 evidence`);
+        assert.doesNotThrow(() => JSON.stringify(ci), `${label}/${d.name}: criticalIssue 必须可序列化`);
+      }
+    }
+  }
+
+  assert.ok(Array.isArray(auth.criticalIssues), `${label}: authenticity.criticalIssues 必须是数组`);
+  for (const ci of auth.criticalIssues) {
+    assert.ok(ci && typeof ci === 'object', `${label}: criticalIssues 元素必须是对象`);
+    assert.equal(typeof ci.code, 'string', `${label}: criticalIssues[].code 必须是字符串`);
+    assert.equal(typeof ci.message, 'string', `${label}: criticalIssues[].message 必须是字符串`);
+    assert.ok('evidence' in ci, `${label}: criticalIssues[] 必须有 evidence`);
+    assert.doesNotThrow(() => JSON.stringify(ci), `${label}: criticalIssues[] 必须可序列化`);
+  }
+
+  assert.ok(auth.runError === null || typeof auth.runError === 'object', `${label}: runError 必须是 null 或对象`);
+  if (auth.runError) {
+    // 契约 6.6 只要求 { code, message }；6.3 的 fatalRunError 明确两种 code，
+    // 但 engine 前置校验（如缺 key）也允许其它 snake_case code，故这里只校验形状。
+    assert.match(String(auth.runError.code), /^[a-z][a-z0-9_]*$/, `${label}: runError.code 必须是 snake_case，实际 "${auth.runError.code}"`);
+    assert.equal(typeof auth.runError.message, 'string', `${label}: runError.message 必须是字符串`);
+    assert.equal(auth.verdict, 'invalid', `${label}: 有 runError 时 verdict 必须是 invalid（契约 6.3/§8.3）`);
+    assert.equal(auth.summaryText, '检测无效', `${label}: 有 runError 时 summaryText 必须是「检测无效」`);
+  }
+
+  assert.ok(auth.cost && typeof auth.cost === 'object', `${label}: authenticity.cost 必须是对象`);
+  for (const k of ['requests', 'promptTokens', 'completionTokens']) {
+    assert.equal(typeof auth.cost[k], 'number', `${label}: cost.${k} 必须是数字`);
+    assert.ok(auth.cost[k] >= 0, `${label}: cost.${k} 不得为负`);
+  }
+  assert.equal(typeof auth.cost.note, 'string', `${label}: cost.note 必须是字符串`);
+
+  assert.ok(Array.isArray(auth.warnings), `${label}: authenticity.warnings 必须是数组`);
+  for (const w of auth.warnings) assert.equal(typeof w, 'string', `${label}: warnings 元素必须是字符串`);
+
+  for (const k of ['startedAt', 'finishedAt', 'durationMs']) {
+    assert.equal(typeof auth[k], 'number', `${label}: authenticity.${k} 必须是数字`);
+  }
+}
+
+test('detect() 未请求真伪检测时 report.authenticity 为 null（契约 7）', async (t) => {
+  if (!engine) return skipEngine(t);
+  const fixture = loadFixture('openai-official-401');
+  const report = await engine.detect(detectArgs(fixture, createFakeTransport(fixture)));
+  assert.ok('authenticity' in report, 'DetectionReport 必须始终包含 authenticity 字段（可为 null）');
+  assert.equal(report.authenticity, null, '未请求真伪检测时 authenticity 必须为 null');
+});
+
+test('[v2] detect() 请求真伪检测且 transport 全部失败 → authenticity 合法且 verdict=invalid', async (t) => {
+  if (!engine) return skipEngine(t);
+  const SECRET = 'sk-ant-authcontract-SECRET-0123456789';
+  const failing = async () => {
+    throw new TypeError('fetch failed');
+  };
+  const report = await engine.detect({
+    baseUrl: 'https://api.anthropic.com',
+    provider: 'anthropic',
+    mode: 'browser',
+    apiKey: SECRET,
+    transport: failing,
+    authenticity: { model: 'claude-sonnet-4-5', mode: 'quick' },
+    options: { timeoutMs: 500 }
+  });
+  assertReportValid(report, 'v2-authenticity');
+  assertAuthenticityValid(report.authenticity, 'v2-authenticity');
+  assert.notEqual(report.authenticity, null, '请求了真伪检测时 authenticity 不得为 null');
+  assert.equal(
+    report.authenticity.verdict,
+    'invalid',
+    `transport 全部失败时真伪轴必须为 invalid（不得输出低分），实际 ${report.authenticity.verdict}（score=${report.authenticity.score}）`
+  );
+
+  const blob = JSON.stringify(report);
+  assert.ok(!blob.includes(SECRET), 'report 中不得出现完整 API key（契约 6.7）');
+});
+
+test('[v2] authenticity 报告内的 runError.code 必须是契约枚举值', async (t) => {
+  if (!engine) return skipEngine(t);
+  const quotaTransport = async () =>
+    new Response(
+      JSON.stringify({ error: { type: 'insufficient_quota', message: 'You exceeded your current quota' } }),
+      { status: 429, headers: { 'content-type': 'application/json' } }
+    );
+  const report = await engine.detect({
+    baseUrl: 'https://api.anthropic.com',
+    provider: 'anthropic',
+    mode: 'browser',
+    apiKey: 'sk-ant-test-key',
+    transport: quotaTransport,
+    authenticity: { model: 'claude-sonnet-4-5', mode: 'quick' },
+    options: { timeoutMs: 500 }
+  });
+  assertAuthenticityValid(report.authenticity, 'v2-quota');
+  const auth = report.authenticity;
+  if (auth && auth.runError) {
+    assert.ok(FATAL_CODES.includes(auth.runError.code), `非法 runError.code "${auth.runError.code}"`);
+    assert.equal(auth.verdict, 'invalid');
+  }
+});
+

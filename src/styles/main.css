@@ -29,6 +29,10 @@
   --info: #1a56c4;
   --info-soft: #eaf1fe;
   --info-border: #b6cdf7;
+  /* 轴 2（上游真伪）专用色：与轴 1 的 accent 蓝明确区分，强调两轴并列。 */
+  --axis2: #6d3bd1;
+  --axis2-soft: #f1ebfd;
+  --axis2-border: #cbb8f2;
   --neutral: #4a5568;
   --neutral-soft: #eef1f5;
   --neutral-border: #ccd4de;
@@ -69,6 +73,9 @@
     --info: #8db8fd;
     --info-soft: #16233c;
     --info-border: #2b3f66;
+    --axis2: #c0a8ff;
+    --axis2-soft: #241a3d;
+    --axis2-border: #463271;
     --neutral: #b6c2d1;
     --neutral-soft: #1f2733;
     --neutral-border: #38424f;
@@ -102,6 +109,9 @@
   --info: #8db8fd;
   --info-soft: #16233c;
   --info-border: #2b3f66;
+  --axis2: #c0a8ff;
+  --axis2-soft: #241a3d;
+  --axis2-border: #463271;
   --neutral: #b6c2d1;
   --neutral-soft: #1f2733;
   --neutral-border: #38424f;
@@ -450,7 +460,11 @@ summary:focus-visible {
 
 .btn:disabled {
   opacity: 0.6;
-  cursor: progress;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  filter: none;
 }
 
 .btn-primary {
@@ -1247,6 +1261,605 @@ details[open] > summary::before {
   font-size: 0.78rem;
 }
 
+/* ==========================================================================
+ * 契约 v2：检测深度 / 费用确认 / 两轴报告 / 上游真伪轴
+ * ========================================================================== */
+
+/* —— 检测深度三选一 —— */
+
+.depth-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+  gap: 0.6rem;
+}
+
+.depth-choice {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.depth-choice:hover {
+  border-color: var(--accent);
+}
+
+.depth-choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* 老浏览器不支持 :has() 时的降级：至少高亮选中项的文字。 */
+.depth-choice input:checked + .depth-body .depth-name {
+  color: var(--accent);
+}
+
+.depth-choice input {
+  margin-top: 0.25rem;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
+.depth-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.depth-name {
+  font-weight: 650;
+  font-size: 0.92rem;
+}
+
+.depth-desc {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.required-mark {
+  color: var(--danger);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* —— Key 安全提示 —— */
+
+.key-notice {
+  margin: 0.35rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--info-border);
+  border-left: 4px solid var(--info);
+  border-radius: var(--radius-sm);
+  background: var(--info-soft);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+/* —— 费用确认 —— */
+
+.cost-box {
+  border: 1px solid var(--warn-border);
+  border-left: 4px solid var(--warn);
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+  padding: 0.85rem 0.95rem;
+  gap: 0.55rem;
+}
+
+.cost-box.cost-confirmed {
+  border-color: var(--success-border);
+  border-left-color: var(--success);
+  background: var(--success-soft);
+}
+
+.cost-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.cost-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.cost-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.cost-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 0.5rem;
+}
+
+.cost-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.cost-item-label {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.cost-item-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-item-hint {
+  color: var(--text-faint);
+  font-size: 0.74rem;
+}
+
+.cost-note,
+.cost-idle {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.cost-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.cost-confirm {
+  align-items: flex-start;
+  font-weight: 600;
+}
+
+.cost-confirm input {
+  margin-top: 0.2rem;
+}
+
+.start-reason {
+  margin: 0.6rem 0 0;
+  font-size: 0.85rem;
+}
+
+.start-reason.tone-warn { color: var(--warn); }
+.start-reason.tone-info { color: var(--info); }
+.start-reason.tone-success { color: var(--text-faint); }
+.start-reason.tone-plain { color: var(--text-faint); }
+
+/* —— 两轴报告骨架 —— */
+
+.axes-intro {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+
+.axes-intro-text {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+
+.axis-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: clamp(0.85rem, 2vw, 1.2rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-inset);
+}
+
+.axis-card.axis-connection {
+  border-left: 4px solid var(--accent);
+}
+
+.axis-card.axis-authenticity {
+  border-left: 4px solid var(--axis2);
+}
+
+.axis-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.8rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.axis-head-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.axis-index {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.axis-authenticity .axis-index {
+  background: var(--axis2-soft);
+  color: var(--axis2);
+}
+
+.axis-title {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.axis-sub {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+/* —— 两轴组合解读 —— */
+
+.axis-combo {
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--neutral-border);
+  border-radius: var(--radius);
+  background: var(--neutral-soft);
+}
+
+.axis-combo.tone-success { border-color: var(--success-border); background: var(--success-soft); }
+.axis-combo.tone-warn    { border-color: var(--warn-border);    background: var(--warn-soft); }
+.axis-combo.tone-danger  { border-color: var(--danger-border);  background: var(--danger-soft); }
+.axis-combo.tone-info    { border-color: var(--info-border);    background: var(--info-soft); }
+
+.axis-combo-label {
+  margin: 0 0 0.2rem;
+  color: var(--text-dim);
+  font-size: 0.76rem;
+}
+
+.axis-combo-text {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.axis-combo.tone-success .axis-combo-text { color: var(--success); }
+.axis-combo.tone-warn    .axis-combo-text { color: var(--warn); }
+.axis-combo.tone-danger  .axis-combo-text { color: var(--danger); }
+.axis-combo.tone-info    .axis-combo-text { color: var(--info); }
+
+.axis-combo-hint {
+  margin: 0.3rem 0 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+/* —— 真伪轴横幅：critical 红 / invalid 灰 / warnings 黄 —— */
+
+.auth-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.8rem 0.95rem;
+  border-radius: var(--radius);
+}
+
+.auth-banner-critical {
+  border: 1px solid var(--danger-border);
+  border-left: 5px solid var(--danger);
+  background: var(--danger-soft);
+}
+
+/* 「检测无效」刻意使用灰色（中性），与「未达标」的红色严格区分。 */
+.auth-banner-invalid {
+  border: 1px solid var(--neutral-border);
+  border-left: 5px solid var(--neutral);
+  background: var(--neutral-soft);
+}
+
+.auth-banner-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.auth-banner-critical .auth-banner-title { color: var(--danger); }
+.auth-banner-invalid .auth-banner-title { color: var(--text); }
+
+.auth-banner-text {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.auth-banner-list {
+  margin: 0.2rem 0 0;
+  padding-left: 1.15rem;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.auth-banner-note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.auth-issue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.auth-issue {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.auth-issue-message {
+  margin: 0.3rem 0 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.auth-warnings {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--warn-border);
+  border-left: 4px solid var(--warn);
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+}
+
+.auth-warnings-title {
+  margin: 0 0 0.25rem;
+  color: var(--warn);
+  font-size: 0.92rem;
+}
+
+.auth-warnings-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+/* —— 真伪轴摘要 —— */
+
+.auth-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.auth-ring-wrap {
+  flex: 0 0 auto;
+  margin-inline: auto;
+}
+
+.auth-stat-grid {
+  flex: 1 1 22rem;
+}
+
+/* —— 检测器表格：skip / error / fail 三态视觉区分 —— */
+
+.section-subtitle {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.detector-table-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+}
+
+.detector-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.detector-table th,
+.detector-table td {
+  padding: 0.5rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.detector-table thead th {
+  background: var(--bg-soft);
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.detector-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.detector-display-name {
+  font-weight: 600;
+}
+
+.detector-raw-name {
+  color: var(--text-faint);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.detector-num {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.detector-score-muted {
+  color: var(--text-faint);
+  font-size: 0.8rem;
+}
+
+.detector-reason-cell {
+  max-width: 26rem;
+}
+
+.detector-reason {
+  font-size: 0.8rem;
+}
+
+.detector-reason.reason-skip  { color: var(--info); }
+.detector-reason.reason-error { color: var(--warn); }
+.detector-reason.reason-fail  { color: var(--danger); }
+
+.detector-row.status-skip  { background: color-mix(in srgb, var(--info-soft) 55%, transparent); }
+.detector-row.status-error { background: color-mix(in srgb, var(--warn-soft) 60%, transparent); }
+.detector-row.status-fail  { background: color-mix(in srgb, var(--danger-soft) 45%, transparent); }
+
+/* 状态 chip：skip 灰蓝、error 琥珀、fail 红色、pass 绿色。 */
+.chip.detector-status {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chip.detector-status.status-pass {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: var(--success-border);
+}
+
+.chip.detector-status.status-fail {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+}
+
+.chip.detector-status.status-skip {
+  color: var(--info);
+  background: var(--info-soft);
+  border-color: var(--info-border);
+}
+
+.chip.detector-status.status-error {
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-color: var(--warn-border);
+  font-style: italic;
+}
+
+/* —— 子项明细 —— */
+
+.subchecks-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.subchecks-title {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.subcheck-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.subcheck-item {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+.subcheck-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.subcheck-name {
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.subcheck-detail {
+  margin: 0.25rem 0 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.auth-empty .state-icon {
+  font-size: 1.2rem;
+  margin-bottom: 0.2rem;
+}
+
+.auth-footnote {
+  margin: 0;
+}
+
+/* —— 历史里的真伪小徽章 —— */
+
+.auth-mini-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border: 1px solid var(--neutral-border);
+  border-radius: 999px;
+  background: var(--neutral-soft);
+  color: var(--neutral);
+  font-size: 0.76rem;
+}
+
+.auth-mini-badge.tone-success { color: var(--success); background: var(--success-soft); border-color: var(--success-border); }
+.auth-mini-badge.tone-warn    { color: var(--warn);    background: var(--warn-soft);    border-color: var(--warn-border); }
+.auth-mini-badge.tone-danger  { color: var(--danger);  background: var(--danger-soft);  border-color: var(--danger-border); }
+.auth-mini-badge.tone-info    { color: var(--info);    background: var(--info-soft);    border-color: var(--info-border); }
+
 /* ------------------------------------------------------------------------ *
  * 响应式：手机宽度
  * ------------------------------------------------------------------------ */
@@ -1276,6 +1889,31 @@ details[open] > summary::before {
 
   .kv-table th {
     width: 40%;
+  }
+
+  .axis-card {
+    padding: 0.8rem;
+  }
+
+  .axis-sub {
+    font-size: 0.8rem;
+  }
+
+  .auth-summary {
+    flex-direction: column;
+  }
+
+  .auth-stat-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+    width: 100%;
+  }
+
+  .detector-table {
+    min-width: 560px;
+  }
+
+  .detector-reason-cell {
+    max-width: 18rem;
   }
 
   body {
@@ -1346,9 +1984,22 @@ details[open] > summary::before {
   .signal-group,
   .stat-card,
   .probe,
-  .uncertainty {
+  .uncertainty,
+  .axis-card,
+  .axis-combo,
+  .auth-banner,
+  .auth-warnings,
+  .cost-box {
     break-inside: avoid;
     box-shadow: none;
+  }
+
+  .axis-card,
+  .axes-intro,
+  .auth-banner,
+  .auth-warnings,
+  .cost-box {
+    background: #fff;
   }
 
   .code-pre {

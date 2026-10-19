@@ -269,7 +269,7 @@ function emptyByCategory() {
   return out;
 }
 
-function buildReport({ target, mode, signals, probes, notes, startedAt }) {
+function buildReport({ target, mode, signals, probes, notes, startedAt, authenticity = null }) {
   const scored = scoreSignals(signals);
   const sorted = sortSignalsByContribution(signals);
   const byCategory = emptyByCategory();
@@ -289,12 +289,16 @@ function buildReport({ target, mode, signals, probes, notes, startedAt }) {
     signals: sorted,
     byCategory,
     probes,
+    // 契约 v2：上游真伪轴（正交于上面的连接轴）。未请求真伪检测时为 null。
+    authenticity,
     capabilities: {
       canReadHeaders: true,
       tlsAvailable: mode === 'proxy' && probes.some((p) => p.kind === 'tls' && Boolean(p.meta?.tls)),
       corsBlocked: probes.some((p) => p.error?.kind === 'cors'),
       networkReachable: probes.some((p) => p.kind !== 'tls' && p.response !== null),
-      costIncurred: probes.some((p) => p.meta?.paid === true && p.response !== null),
+      costIncurred:
+        probes.some((p) => p.meta?.paid === true && p.response !== null) ||
+        Boolean(authenticity?.cost?.requests),
     },
     notes,
     startedAt,
@@ -311,6 +315,126 @@ function buildReport({ target, mode, signals, probes, notes, startedAt }) {
     flags: scored.flags,
     detectorVersion: DETECTOR_VERSION,
   };
+}
+
+/**
+ * 构造「检测无效」形态的真伪报告（契约 6.6）。
+ * 这类结果**不是**低分，UI 必须显示为灰色无效态。
+ */
+function invalidAuthenticity({ providerId, model, mode, code, message }) {
+  const now = Date.now();
+  return {
+    schema: 1,
+    provider: providerId,
+    model: model || null,
+    mode: mode || 'standard',
+    score: 0,
+    verdict: 'invalid',
+    summaryText: '检测无效',
+    detectors: [],
+    criticalIssues: [],
+    runError: { code, message },
+    cost: { requests: 0, promptTokens: 0, completionTokens: 0, note: '未发请求' },
+    warnings: [],
+    startedAt: now,
+    finishedAt: now,
+    durationMs: 0,
+  };
+}
+
+/**
+ * 契约 v2 真伪轴：按需执行上游真伪检测。
+ *
+ * 设计要点：
+ * - 用**动态 import** 加载 `./auth/index.js`，因此 v2 模块缺失/语法错误都不会影响 v1 指纹检测。
+ * - 任何异常都转成 `verdict: 'invalid'`，绝不让真伪检测把整个 detect() 搞崩。
+ * - 未提供 key / 未指定模型时直接返回 invalid（而不是发一批注定 401 的请求）。
+ */
+async function runAuthenticityPhase({ input, options, mode, apiKey, providerId, norm, transport, notes }) {
+  const requested = input?.authenticity;
+  if (!requested) return null;
+
+  const cfg = requested === true ? {} : typeof requested === 'object' ? requested : {};
+  const model = safeString(cfg.model) || safeString(input?.model);
+  const authMode = ['quick', 'standard', 'full'].includes(cfg.mode) ? cfg.mode : 'standard';
+
+  if (!apiKey) {
+    notes.push('未提供 API Key，已跳过上游真伪检测（真伪检测必须携带有效 Key）。');
+    return invalidAuthenticity({
+      providerId,
+      model,
+      mode: authMode,
+      code: 'missing_api_key',
+      message: '未提供 API Key，无法执行真伪检测。',
+    });
+  }
+  if (!model) {
+    notes.push('未指定模型，已跳过上游真伪检测（真伪判定必须绑定具体模型）。');
+    return invalidAuthenticity({
+      providerId,
+      model,
+      mode: authMode,
+      code: 'missing_model',
+      message: '未指定要检测的模型，无法执行真伪检测。',
+    });
+  }
+
+  let mod;
+  try {
+    mod = await import('./auth/index.js');
+  } catch (err) {
+    notes.push('真伪检测模块不可用（可能是版本不匹配）：' + (err?.message || String(err)));
+    return invalidAuthenticity({
+      providerId,
+      model,
+      mode: authMode,
+      code: 'engine_unavailable',
+      message: '真伪检测模块不可用。',
+    });
+  }
+
+  try {
+    const result = await mod.runAuthenticity({
+      provider: providerId,
+      baseUrl: norm.baseUrl,
+      apiKey,
+      model,
+      mode: authMode,
+      transport,
+      options: {
+        // thinking 类探针单次可能 60s+，真伪阶段给更宽松的超时。
+        timeoutMs: Number(cfg.timeoutMs) || 120000,
+        signal: options.signal || null,
+        // 注意：不能用 `Number(x) || undefined` —— 当调用方显式传 0（表示「一个请求都不许发」）
+        // 时会被吞成 undefined，runner 会回落到默认 24，违反「maxRequests 是硬上限」的语义。
+        maxRequests: Number.isFinite(Number(cfg.maxRequests)) ? Number(cfg.maxRequests) : undefined,
+      },
+    });
+    if (!result || typeof result !== 'object') {
+      notes.push('真伪检测返回了空结果。');
+      return invalidAuthenticity({
+        providerId,
+        model,
+        mode: authMode,
+        code: 'empty_result',
+        message: '真伪检测未返回结果。',
+      });
+    }
+    if (result.runError) {
+      notes.push('真伪检测无效：' + (result.runError.message || result.runError.code));
+    }
+    for (const warning of result.warnings || []) notes.push('真伪检测提示：' + warning);
+    return result;
+  } catch (err) {
+    notes.push('真伪检测执行失败，已降级为「检测无效」：' + (err?.message || String(err)));
+    return invalidAuthenticity({
+      providerId,
+      model,
+      mode: authMode,
+      code: 'engine_error',
+      message: '真伪检测执行失败：' + (err?.message || String(err)),
+    });
+  }
 }
 
 /** 内部错误时的降级报告：保证 detect 永不抛异常。 */
@@ -345,12 +469,20 @@ function fallbackReport(input, startedAt, error) {
 
 /**
  * 执行一次完整检测。**绝不抛异常**。
+ *
+ * 两根正交的轴：
+ * - 连接轴（v1）：`report.score` / `report.verdict`，回答「官方还是第三方」。
+ * - 真伪轴（v2）：`report.authenticity`，回答「上游是不是真模型」。未请求时为 `null`。
+ *
  * @param {object} input
  * @param {string} [input.baseUrl]
  * @param {string} [input.apiKey]
  * @param {'auto'|'openai'|'anthropic'|'gemini'} [input.provider]
  * @param {'browser'|'proxy'} [input.mode]
  * @param {Function} [input.transport]
+ * @param {string} [input.model] 目标模型（真伪检测必填）
+ * @param {false|true|{model?:string, mode?:'quick'|'standard'|'full', timeoutMs?:number, maxRequests?:number}} [input.authenticity]
+ *   是否/如何执行 v2 真伪检测。`true` 等价于 `{mode:'standard'}` 且模型取 `input.model`。
  * @param {object} [input.options]
  */
 export async function detect(input = {}) {
@@ -462,7 +594,19 @@ async function detectInner(input, startedAt) {
   const signals = runRules(ctx, provider);
   const notes = buildNotes(ctx, options, mode, apiKey);
 
-  return buildReport({ target, mode, signals, probes, notes, startedAt });
+  // ---- 契约 v2：上游真伪轴（与连接轴正交，按需执行） --------------------
+  const authenticity = await runAuthenticityPhase({
+    input,
+    options,
+    mode,
+    apiKey,
+    providerId,
+    norm,
+    transport,
+    notes,
+  });
+
+  return buildReport({ target, mode, signals, probes, notes, startedAt, authenticity });
 }
 
 export { joinPath };
